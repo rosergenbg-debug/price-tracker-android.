@@ -10,7 +10,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Живые Котировки"
+        android:text="Биржа: Евро / КГ"
         android:textColor="#FFFFFF"
         android:textSize="32sp"
         android:textStyle="bold"
@@ -33,7 +33,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Золото (1 oz)"
+            android:text="Золото (1 кг)"
             android:textColor="#8E8E93"
             android:textSize="20sp"
             android:layout_marginStart="16dp"/>
@@ -44,7 +44,7 @@
             android:layout_height="wrap_content"
             android:text="---"
             android:textColor="#FFD700"
-            android:textSize="28sp"
+            android:textSize="26sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -64,7 +64,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Серебро (1 oz)"
+            android:text="Серебро (1 кг)"
             android:textColor="#8E8E93"
             android:textSize="20sp"
             android:layout_marginStart="16dp"/>
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:text="---"
             android:textColor="#E0E0E0"
-            android:textSize="28sp"
+            android:textSize="26sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -95,7 +95,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Bitcoin (BTC)"
+            android:text="Bitcoin (1 BTC)"
             android:textColor="#8E8E93"
             android:textSize="20sp"
             android:layout_marginStart="16dp"/>
@@ -106,7 +106,7 @@
             android:layout_height="wrap_content"
             android:text="---"
             android:textColor="#F7931A"
-            android:textSize="28sp"
+            android:textSize="26sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -114,7 +114,7 @@
         android:id="@+id/btnRefresh"
         android:layout_width="match_parent"
         android:layout_height="64dp"
-        android:text="Обновить цены"
+        android:text="Обновить котировки"
         android:textSize="20sp"
         android:textColor="#FFFFFF"
         android:backgroundTint="#333333" />
@@ -123,7 +123,7 @@
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Ожидание данных..."
+        android:text="Валюта: EUR (€)"
         android:textColor="#8E8E93"
         android:gravity="center"
         android:layout_marginTop="16dp" />

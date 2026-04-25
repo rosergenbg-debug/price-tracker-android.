@@ -18,42 +18,36 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRefresh: Button
 
     private val client = OkHttpClient()
+    // Коэффициент пересчета: сколько тройских унций в 1 килограмме
+    private val OZ_TO_KG = 32.1507466
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Находим все элементы на экране по их ID
         tvGoldPrice = findViewById(R.id.tvGoldPrice)
         tvSilverPrice = findViewById(R.id.tvSilverPrice)
         tvBitcoinPrice = findViewById(R.id.tvBitcoinPrice)
         tvStatus = findViewById(R.id.tvStatus)
         btnRefresh = findViewById(R.id.btnRefresh)
 
-        // Вешаем слушатель нажатий на кнопку
-        btnRefresh.setOnClickListener {
-            fetchPrices()
-        }
-
-        // Автоматически запускаем загрузку при старте приложения
+        btnRefresh.setOnClickListener { fetchPrices() }
         fetchPrices()
     }
 
     private fun fetchPrices() {
-        tvStatus.text = "Обновление..."
-        btnRefresh.isEnabled = false // Блокируем кнопку, чтобы не спамить запросами
+        tvStatus.text = "Связь с биржей..."
+        btnRefresh.isEnabled = false
 
-        // Ссылка на бесплатный API CoinGecko
-        val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=usd"
+        // Теперь запрашиваем цены именно в EUR
+        val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
 
         val request = Request.Builder().url(url).build()
 
-        // Делаем фоновый асинхронный запрос в интернет
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                // Если нет интернета или сервер упал
                 runOnUiThread {
-                    tvStatus.text = "Ошибка сети: проверьте интернет"
+                    tvStatus.text = "Ошибка: нет сети"
                     btnRefresh.isEnabled = true
                 }
             }
@@ -61,30 +55,31 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 val responseData = response.body?.string()
                 
-                // Чтобы менять текст на экране, мы обязаны вернуться в UI-поток (runOnUiThread)
                 runOnUiThread {
                     if (response.isSuccessful && responseData != null) {
                         try {
-                            // Парсим JSON ответ от сервера
                             val json = JSONObject(responseData)
                             
-                            val btcPrice = json.getJSONObject("bitcoin").getDouble("usd")
-                            val goldPrice = json.getJSONObject("tether-gold").getDouble("usd")
-                            val silverPrice = json.getJSONObject("kinesis-silver").getDouble("usd")
-
-                            // Красиво форматируем числа с запятыми и знаком доллара
-                            tvBitcoinPrice.text = String.format(Locale.US, "$ %,.2f", btcPrice)
-                            tvGoldPrice.text = String.format(Locale.US, "$ %,.2f", goldPrice)
-                            tvSilverPrice.text = String.format(Locale.US, "$ %,.2f", silverPrice)
+                            // 1. Биткоин просто в евро
+                            val btcPriceEur = json.getJSONObject("bitcoin").getDouble("eur")
                             
-                            tvStatus.text = "Успешно обновлено"
+                            // 2. Золото и серебро: берем цену за унцию и умножаем на 32.1507
+                            val goldPriceEurKg = json.getJSONObject("tether-gold").getDouble("eur") * OZ_TO_KG
+                            val silverPriceEurKg = json.getJSONObject("kinesis-silver").getDouble("eur") * OZ_TO_KG
+
+                            // Выводим результат с символом Евро
+                            tvBitcoinPrice.text = String.format(Locale.GERMANY, "€ %,.2f", btcPriceEur)
+                            tvGoldPrice.text = String.format(Locale.GERMANY, "€ %,.0f", goldPriceEurKg)
+                            tvSilverPrice.text = String.format(Locale.GERMANY, "€ %,.2f", silverPriceEurKg)
+                            
+                            tvStatus.text = "Цены актуальны (Евро/КГ)"
                         } catch (e: Exception) {
-                            tvStatus.text = "Ошибка обработки данных"
+                            tvStatus.text = "Ошибка обработки JSON"
                         }
                     } else {
-                        tvStatus.text = "Ошибка сервера"
+                        tvStatus.text = "Сервер занят"
                     }
-                    btnRefresh.isEnabled = true // Разблокируем кнопку
+                    btnRefresh.isEnabled = true
                 }
             }
         })
