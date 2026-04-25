@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#121212" android:padding="16dp">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Биржа EUR / KG" android:textColor="#FFFFFF" android:textSize="22sp" android:layout_gravity="center" android:layout_marginBottom="20dp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="3" android:layout_marginBottom="16dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="40dp" android:layout_height="40dp" android:src="@drawable/ic_gold"/><TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#FFD700" android:textStyle="bold"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="40dp" android:layout_height="40dp" android:src="@drawable/ic_silver"/><TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#E0E0E0" android:textStyle="bold"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="40dp" android:layout_height="40dp" android:src="@drawable/ic_bitcoin"/><TextView android:id="@+id/tvBitcoinPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#F7931A" android:textStyle="bold"/>
+        </LinearLayout>
+    </LinearLayout>
+    <com.github.mikephil.charting.charts.LineChart android:id="@+id/lineChart" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginBottom="16dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginBottom="16dp">
+        <Button android:id="@+id/btn1W" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1W" android:textSize="12sp" android:layout_margin="2dp" />
+        <Button android:id="@+id/btn1M" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1M" android:textSize="12sp" android:layout_margin="2dp" />
+        <Button android:id="@+id/btn1Y" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1Y" android:textSize="12sp" android:layout_margin="2dp" />
+        <Button android:id="@+id/btn5Y" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="5Y" android:textSize="12sp" android:layout_margin="2dp" />
+    </LinearLayout>
+    <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="50dp" android:text="Обновить данные" android:backgroundTint="#2E7D32" />
+    <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Готово" android:textColor="#8E8E93" android:gravity="center" android:layout_marginTop="8dp" />
+</LinearLayout>
