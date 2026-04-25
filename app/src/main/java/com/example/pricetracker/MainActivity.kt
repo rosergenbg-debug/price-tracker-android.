@@ -12,6 +12,7 @@ import com.github.mikephil.charting.formatter.ValueFormatter
 import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -118,10 +119,12 @@ class MainActivity : AppCompatActivity() {
         }
         lineChart.data = LineData(dataSet)
         lineChart.xAxis.valueFormatter = object : ValueFormatter() {
+            private val formatLong = SimpleDateFormat("dd/MM/yy", Locale.GERMANY)
+            private val formatShort = SimpleDateFormat("dd/MM", Locale.GERMANY)
+            
             override fun getFormattedValue(value: Float): String {
-                val cal = Calendar.getInstance().apply { timeInMillis = value.toLong() }
-                return if (currentDays > 60) String.format(Locale.GERMANY, "%1$td/%1$tm/%1$ty", cal) 
-                       else String.format(Locale.GERMANY, "%1$td/%1$tm", cal)
+                val date = Date(value.toLong())
+                return if (currentDays > 60) formatLong.format(date) else formatShort.format(date)
             }
         }
         lineChart.invalidate()
