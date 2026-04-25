@@ -44,10 +44,11 @@ class MainActivity : AppCompatActivity() {
         lineChart.description.isEnabled = false; lineChart.xAxis.textColor = Color.WHITE
         lineChart.axisLeft.textColor = Color.WHITE; lineChart.axisRight.isEnabled = false
         lineChart.legend.textColor = Color.WHITE
+        lineChart.setNoDataText("Загрузка данных...")
     }
 
     private fun update() {
-        tvStatus.text = "Загрузка..."; btnRefresh.isEnabled = false
+        tvStatus.text = "Связь с биржей..."; btnRefresh.isEnabled = false
         val urlPrices = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
         val urlHistory = "https://api.coingecko.com/api/v3/coins/tether-gold/market_chart?vs_currency=eur&days=$currentDays"
 
@@ -90,9 +91,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun displayChart(entries: ArrayList<Entry>) {
+        val goldHex = Color.parseColor("#FFD700")
         val set = LineDataSet(entries, "Золото (€/КГ)").apply {
-            color = Color.GOLD; setDrawCircles(false); setDrawValues(false); lineWidth = 2f
-            setDrawFilled(true); fillColor = Color.GOLD; fillAlpha = 40
+            color = goldHex; setDrawCircles(false); setDrawValues(false); lineWidth = 2f
+            setDrawFilled(true); fillColor = goldHex; fillAlpha = 40
         }
         lineChart.data = LineData(set)
         lineChart.xAxis.valueFormatter = object : ValueFormatter() {
