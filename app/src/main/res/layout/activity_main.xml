@@ -1,131 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#1C1C1E"
-    android:padding="24dp"
-    android:gravity="center_vertical">
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Биржа: Евро / КГ"
-        android:textColor="#FFFFFF"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:layout_marginBottom="48dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="32dp">
-        
-        <ImageView
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:src="@drawable/ic_gold" />
-            
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="Золото (1 кг)"
-            android:textColor="#8E8E93"
-            android:textSize="20sp"
-            android:layout_marginStart="16dp"/>
-            
-        <TextView
-            android:id="@+id/tvGoldPrice"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="---"
-            android:textColor="#FFD700"
-            android:textSize="26sp"
-            android:textStyle="bold" />
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#121212" android:padding="16dp">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Рынок: EUR / KG" android:textColor="#FFFFFF" android:textSize="24sp" android:textStyle="bold" android:layout_gravity="center" android:layout_marginBottom="24dp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="3" android:layout_marginBottom="16dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/ic_gold"/>
+            <TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#FFD700" android:textSize="18sp" android:textStyle="bold" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/ic_silver"/>
+            <TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#E0E0E0" android:textSize="18sp" android:textStyle="bold" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/ic_bitcoin"/>
+            <TextView android:id="@+id/tvBitcoinPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="---" android:textColor="#F7931A" android:textSize="18sp" android:textStyle="bold" android:layout_marginTop="4dp"/>
+        </LinearLayout>
     </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="32dp">
-        
-        <ImageView
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:src="@drawable/ic_silver" />
-            
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="Серебро (1 кг)"
-            android:textColor="#8E8E93"
-            android:textSize="20sp"
-            android:layout_marginStart="16dp"/>
-            
-        <TextView
-            android:id="@+id/tvSilverPrice"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="---"
-            android:textColor="#E0E0E0"
-            android:textSize="26sp"
-            android:textStyle="bold" />
+    <com.github.mikephil.charting.charts.LineChart android:id="@+id/lineChart" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginBottom="16dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginBottom="24dp">
+        <Button android:id="@+id/btn1W" style="?attr/materialButtonOutlinedStyle" android:layout_width="60dp" android:layout_height="wrap_content" android:text="1W" android:layout_marginEnd="8dp" android:textColor="#FFFFFF" android:backgroundTint="#333333"/>
+        <Button android:id="@+id/btn1M" style="?attr/materialButtonOutlinedStyle" android:layout_width="60dp" android:layout_height="wrap_content" android:text="1M" android:layout_marginEnd="8dp" android:textColor="#FFFFFF" android:backgroundTint="#333333"/>
+        <Button android:id="@+id/btn1Y" style="?attr/materialButtonOutlinedStyle" android:layout_width="60dp" android:layout_height="wrap_content" android:text="1Y" android:layout_marginEnd="8dp" android:textColor="#FFFFFF" android:backgroundTint="#333333"/>
+        <Button android:id="@+id/btn5Y" style="?attr/materialButtonOutlinedStyle" android:layout_width="60dp" android:layout_height="wrap_content" android:text="5Y" android:textColor="#FFFFFF" android:backgroundTint="#333333"/>
     </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="48dp">
-        
-        <ImageView
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:src="@drawable/ic_bitcoin" />
-            
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="Bitcoin (1 BTC)"
-            android:textColor="#8E8E93"
-            android:textSize="20sp"
-            android:layout_marginStart="16dp"/>
-            
-        <TextView
-            android:id="@+id/tvBitcoinPrice"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="---"
-            android:textColor="#F7931A"
-            android:textSize="26sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <Button
-        android:id="@+id/btnRefresh"
-        android:layout_width="match_parent"
-        android:layout_height="64dp"
-        android:text="Обновить котировки"
-        android:textSize="20sp"
-        android:textColor="#FFFFFF"
-        android:backgroundTint="#333333" />
-
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Валюта: EUR (€)"
-        android:textColor="#8E8E93"
-        android:gravity="center"
-        android:layout_marginTop="16dp" />
-
+    <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="64dp" android:text="Обновить" android:textSize="20sp" android:textColor="#FFFFFF" android:backgroundTint="#2E7D32" />
+    <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Ожидание данных..." android:textColor="#8E8E93" android:gravity="center" android:layout_marginTop="12dp" />
 </LinearLayout>
