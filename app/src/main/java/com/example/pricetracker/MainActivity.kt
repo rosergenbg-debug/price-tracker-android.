@@ -16,158 +16,115 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
-    private var tvGold: TextView? = null
-    private var tvSilver: TextView? = null
-    private var tvBtc: TextView? = null
-    private var tvStat: TextView? = null
-    private var chart: LineChart? = null
-    
+    private var tvG: TextView? = null; private var tvS: TextView? = null; private var tvB: TextView? = null
+    private var tvSt: TextView? = null; private var chart: LineChart? = null
     private val client = OkHttpClient()
     private val OZ_TO_KG = 32.1507
     private var days = 7
-    
-    // Переменная для хранения текущего выбранного актива для графика
-    // По умолчанию: Золото
-    private var selectedCoinId = "tether-gold"
+    private var selectedId = "tether-gold"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
-        // Связываем UI
-        tvGold = findViewById(R.id.tvGoldPrice)
-        tvSilver = findViewById(R.id.tvSilverPrice)
-        tvBtc = findViewById(R.id.tvBitcoinPrice)
-        tvStat = findViewById(R.id.tvStatus)
+        tvG = findViewById(R.id.tvGoldPrice); tvS = findViewById(R.id.tvSilverPrice)
+        tvB = findViewById(R.id.tvBitcoinPrice); tvSt = findViewById(R.id.tvStatus)
         chart = findViewById(R.id.lineChart)
 
-        setupChart()
-        
-        // Кнопки ПЕРИОДОВ (внизу)
-        findViewById<Button>(R.id.btn1W).setOnClickListener { days = 7; updateChartOnly() }
-        findViewById<Button>(R.id.btn1M).setOnClickListener { days = 30; updateChartOnly() }
-        findViewById<Button>(R.id.btn1Y).setOnClickListener { days = 365; updateChartOnly() }
-        findViewById<Button>(R.id.btn5Y).setOnClickListener { days = 1825; updateChartOnly() }
-        
-        // Кнопка ОБНОВИТЬ (всё сразу)
+        chart?.description?.isEnabled = false
+        chart?.xAxis?.textColor = Color.GRAY
+        chart?.axisLeft?.textColor = Color.GRAY
+        chart?.axisRight?.isEnabled = false
+        chart?.setNoDataText("Нажмите обновить...")
+
+        findViewById<Button>(R.id.btn1W).setOnClickListener { days = 7; loadChart() }
+        findViewById<Button>(R.id.btn1M).setOnClickListener { days = 30; loadChart() }
+        findViewById<Button>(R.id.btn1Y).setOnClickListener { days = 365; loadChart() }
+        findViewById<Button>(R.id.btn5Y).setOnClickListener { days = 1825; loadChart() }
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { updateAll() }
         
-        // ИНТЕРАКТИВНЫЕ ИКОНКИ (вверху)
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { switchAsset("tether-gold") }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { switchAsset("kinesis-silver") }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { switchAsset("bitcoin") }
+        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { selectedId = "tether-gold"; loadChart() }
+        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { selectedId = "kinesis-silver"; loadChart() }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { selectedId = "bitcoin"; loadChart() }
         
-        updateAll() // Первый запуск
-    }
-
-    private fun setupChart() {
-        chart?.let {
-            it.description.isEnabled = false; it.xAxis.textColor = Color.WHITE
-            it.axisLeft.textColor = Color.WHITE; it.axisRight.isEnabled = false
-            it.legend.textColor = Color.WHITE; it.setNoDataText("Загрузка графика...")
-        }
+        updateAll()
     }
 
     private fun updateAll() {
-        fetchPrices()    // Шаг 1: Текущие цены
-        updateChartOnly() // Шаг 2: График выбранного актива
-    }
-    
-    private fun switchAsset(coinId: String) {
-        selectedCoinId = coinId
-        chart?.clear() // Очищаем старый график перед загрузкой
-        tvStat?.text = "Загрузка графика..."
-        updateChartOnly()
-    }
-
-    private fun fetchPrices() {
-        val urlP = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
-        client.newCall(Request.Builder().url(urlP).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Ошибка цен", Toast.LENGTH_SHORT).show() }
-            }
+        // Биткоин через Binance (100% стабильно)
+        val reqBtc = Request.Builder().url("https://api.binance.com/api/v3/ticker/price?symbol=BTCEUR").build()
+        client.newCall(reqBtc).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) {
-                val data = response.body?.string() ?: ""
-                runOnUiThread {
-                    try {
-                        val j = JSONObject(data)
-                        // Биткоин - целое евро
-                        tvBtc?.text = String.format("€%,.0f", j.getJSONObject("bitcoin").getDouble("eur"))
-                        // Металлы - Kg евро
-                        tvGold?.text = String.format("€%,.0f", j.getJSONObject("tether-gold").getDouble("eur") * OZ_TO_KG)
-                        tvSilver?.text = String.format("€%,.0f", j.getJSONObject("kinesis-silver").getDouble("eur") * OZ_TO_KG)
-                    } catch (e: Exception) {
-                        Toast.makeText(this@MainActivity, "Ошибка обработки цен", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                val res = response.body?.string() ?: ""
+                runOnUiThread { try {
+                    val price = JSONObject(res).getString("price").toDouble()
+                    tvB?.text = String.format("€%,.0f", price)
+                } catch(e:Exception) {} }
             }
         })
-    }
 
-    private fun updateChartOnly() {
-        fetchHistory(selectedCoinId)
-    }
-
-    private fun fetchHistory(coinId: String) {
-        findViewById<Button>(R.id.btnRefresh).isEnabled = false
-        tvStat?.text = "Загрузка..."
-        
-        val urlH = "https://api.coingecko.com/api/v3/coins/$coinId/market_chart?vs_currency=eur&days=$days"
-        client.newCall(Request.Builder().url(urlH).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { 
-                    tvStat?.text = "Ошибка графика"
-                    Toast.makeText(this@MainActivity, "Нет сети для графика", Toast.LENGTH_SHORT).show()
-                    findViewById<Button>(R.id.btnRefresh).isEnabled = true
-                }
+        // Золото и Серебро через CoinGecko (Цены)
+        val reqMetals = Request.Builder().url("https://api.coingecko.com/api/v3/simple/price?ids=tether-gold,kinesis-silver&vs_currencies=eur").build()
+        client.newCall(reqMetals).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) {
+                val res = response.body?.string() ?: ""
+                runOnUiThread { try {
+                    val j = JSONObject(res)
+                    tvG?.text = String.format("€%,.0f", j.getJSONObject("tether-gold").getDouble("eur") * OZ_TO_KG)
+                    tvS?.text = String.format("€%,.0f", j.getJSONObject("kinesis-silver").getDouble("eur") * OZ_TO_KG)
+                } catch(e:Exception) {} }
             }
+        })
+        loadChart()
+    }
+
+    private fun loadChart() {
+        tvSt?.text = "Загрузка графика..."
+        val url = "https://api.coingecko.com/api/v3/coins/$selectedId/market_chart?vs_currency=eur&days=$days"
+        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { tvSt?.text = "Ошибка сети" } }
             override fun onResponse(call: Call, response: Response) {
                 val data = response.body?.string() ?: ""
                 runOnUiThread {
-                    findViewById<Button>(R.id.btnRefresh).isEnabled = true
                     try {
                         val p = JSONObject(data).getJSONArray("prices")
                         val entries = ArrayList<Entry>()
                         for (i in 0 until p.length()) {
                             val pt = p.getJSONArray(i)
-                            // Если это металл - пересчитываем унцию в КГ. Если БТЦ - оставляем цену.
-                            var priceValue = pt.getDouble(1)
-                            if (coinId.contains("tether") || coinId.contains("kinesis")) {
-                                priceValue *= OZ_TO_KG
-                            }
-                            entries.add(Entry(pt.getLong(0).toFloat(), priceValue.toFloat()))
+                            var valP = pt.getDouble(1)
+                            if (selectedId != "bitcoin") valP *= OZ_TO_KG
+                            entries.add(Entry(pt.getLong(0).toFloat(), valP.toFloat()))
                         }
-                        showChart(entries, coinId)
-                        tvStat?.text = "Период: $days дн."
-                    } catch (e: Exception) {
-                        tvStat?.text = "Ошибка истории"
+                        draw(entries)
+                        tvSt?.text = "Обновлено за $days дн."
+                    } catch (e: Exception) { 
+                        tvSt?.text = "Сервер занят (лимит)"
+                        Toast.makeText(this@MainActivity, "Лимит API. Подождите 1 мин.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
         })
     }
 
-    private fun showChart(entries: ArrayList<Entry>, coinId: String) {
-        // Выбираем цвет линии в зависимости от металла
-        val lineColor = when {
-            coinId.contains("gold") -> Color.parseColor("#FFD700") // Золотой
-            coinId.contains("silver") -> Color.parseColor("#E0E0E0") // Серебряный
-            else -> Color.parseColor("#F7931A") // Биткоин - Оранжевый
+    private fun draw(entries: ArrayList<Entry>) {
+        val color = when(selectedId) {
+            "tether-gold" -> Color.parseColor("#FFD700")
+            "kinesis-silver" -> Color.parseColor("#C0C0C0")
+            else -> Color.parseColor("#F7931A")
         }
-        
         val set = LineDataSet(entries, "").apply {
-            color = lineColor; setDrawCircles(false); setDrawValues(false)
-            lineWidth = 2f; setDrawFilled(true); fillColor = lineColor; fillAlpha = 45
+            this.color = color; setDrawCircles(false); setDrawValues(false)
+            lineWidth = 2.5f; setDrawFilled(true); fillColor = color; fillAlpha = 30
             mode = LineDataSet.Mode.CUBIC_BEZIER
         }
-        chart?.let {
-            it.data = LineData(set)
-            it.xAxis.valueFormatter = object : ValueFormatter() {
-                val sdf = SimpleDateFormat("dd/MM", Locale.GERMANY)
-                override fun getFormattedValue(v: Float) = sdf.format(Date(v.toLong()))
-            }
-            it.legend.isEnabled = false // Отключаем легенду, так как у нас интерактивные иконки
-            it.invalidate()
+        chart?.data = LineData(set)
+        chart?.xAxis?.valueFormatter = object : ValueFormatter() {
+            val sdf = SimpleDateFormat("dd/MM", Locale.GERMANY)
+            override fun getFormattedValue(v: Float) = sdf.format(Date(v.toLong()))
         }
+        chart?.legend?.isEnabled = false
+        chart?.invalidate()
     }
 }
