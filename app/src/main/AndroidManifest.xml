@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application
-        android:label="PriceTracker"
-        android:theme="@style/Theme.PriceTracker"
-        android:usesCleartextTraffic="true">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.pricetracker">
+    <application android:label="PriceTrackerTest">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
