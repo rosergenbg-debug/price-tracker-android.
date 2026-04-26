@@ -25,7 +25,7 @@ import java.util.*
 class MainActivity : AppCompatActivity() {
     private var tvG: TextView? = null; private var tvS: TextView? = null; private var tvB: TextView? = null
     private var tvT: TextView? = null; private var tvSt: TextView? = null; private var chart: LineChart? = null
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
     
     private var activeAsset = "gold" 
     private var days = 30
@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
     private val h = Handler(Looper.getMainLooper()); private var timeLeft = 80
 
     // ИДЕНТИФИКАТОР ТВОЕГО ЛИЧНОГО СЕРВЕРА GOOGLE!
-    private val GOOGLE_PROXY_ID = "AKfycbx40YdlOcOusqUbH9CGPeaaC8l6vb6Q3b7oxpjf9KMK3Jh3ZmmNtUNa3rdvBz3D20RM"
+    private val GOOGLE_PROXY_ID = "AKfycbx40Ydl0c0usqUbH9CGPeaaC8l6vb6Q3b7oxpjf9KMK3Jh3ZmmNtUNa3rdvBz3D20RM"
 
     // Волшебная функция, которая пропускает любой адрес через твой сервер
     private fun getProxyUrl(targetUrl: String): String {
