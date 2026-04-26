@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private val h = Handler(Looper.getMainLooper())
     private var timeLeft = 80
 
+    // Кастомный маркер с расчетом процентов
     inner class ChartMarker(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
         private val tvContent: TextView = findViewById(R.id.tvMarker)
         override fun refreshContent(e: Entry?, highlight: Highlight?) {
@@ -40,7 +41,6 @@ class MainActivity : AppCompatActivity() {
             }
             super.refreshContent(e, highlight)
         }
-        // Немного сдвигаем маркер влево, чтобы он не обрезался краем экрана
         override fun getOffset(): MPPointF { return MPPointF(-(width / 1.2f), -height.toFloat() - 20f) }
     }
 
@@ -60,7 +60,8 @@ class MainActivity : AppCompatActivity() {
         fun selectBtn(b: Button, d: Int) {
             btns.forEach { it.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#BA68C8")) }
             b.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
-            days = d; fetchChart()
+            days = d
+            showFromCacheOrFetch() // Умная загрузка при клике
         }
 
         findViewById<Button>(R.id.btn1D).setOnClickListener { selectBtn(it as Button, 1) }
@@ -69,16 +70,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1Y).setOnClickListener { selectBtn(it as Button, 365) }
         findViewById<Button>(R.id.btn5Y).setOnClickListener { selectBtn(it as Button, 1825) }
         
-        // ИСПРАВЛЕНО: Теперь кнопки иконок вызывают скачивание (fetchChart), а не просто отрисовку
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "tether-gold"; fetchChart() }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "kinesis-silver"; fetchChart() }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "bitcoin"; fetchChart() }
+        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "tether-gold"; showFromCacheOrFetch() }
+        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "kinesis-silver"; showFromCacheOrFetch() }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "bitcoin"; showFromCacheOrFetch() }
         
-        findViewById<Button>(R.id.btnRefresh).setOnClickListener { fullSync() }
+        findViewById<Button>(R.id.btnRefresh).setOnClickListener { 
+            timeLeft = 80
+            fullSync() 
+        }
 
         selectBtn(findViewById(R.id.btn1M), 30)
         startTimer()
-        fullSync()
+        fullSync() // Первый старт
     }
 
     private fun setupChart() {
@@ -92,7 +95,6 @@ class MainActivity : AppCompatActivity() {
         
         chart?.xAxis?.textColor = Color.LTGRAY
         chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
-        
         chart?.xAxis?.setDrawGridLines(true)
         chart?.xAxis?.gridColor = Color.parseColor("#333333")
         chart?.xAxis?.gridLineWidth = 1f
@@ -103,12 +105,32 @@ class MainActivity : AppCompatActivity() {
         h.post(object : Runnable {
             override fun run() {
                 tvT?.text = "Обновление: ${timeLeft}с"
-                if (timeLeft <= 0) { timeLeft = 80; fullSync() } else { timeLeft-- }
+                if (timeLeft <= 0) { 
+                    timeLeft = 80
+                    fullSync() // Тихое обновление по таймеру
+                } else { 
+                    timeLeft-- 
+                }
                 h.postDelayed(this, 1000)
             }
         })
     }
 
+    // Логика клика: проверяем кэш, если есть - рисуем сразу. Если нет - качаем.
+    private fun showFromCacheOrFetch() {
+        val key = "${activeId}_$days"
+        if (cache.containsKey(key)) {
+            updateChartUI()
+            tvSt?.text = "Загружено из памяти"
+        } else {
+            chart?.clear()
+            chart?.setNoDataText("Загрузка периода...")
+            chart?.invalidate()
+            fetchDataSilently(activeId, days)
+        }
+    }
+
+    // Глобальное обновление (цены + текущий график)
     private fun fullSync() {
         val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
         client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
@@ -123,25 +145,17 @@ class MainActivity : AppCompatActivity() {
                 } catch(e:Exception){} }
             }
         })
-        fetchChart()
+        fetchDataSilently(activeId, days)
     }
 
-    private fun fetchChart() {
-        val key = "${activeId}_$days"
-        
-        // Визуальный отклик при нажатии
-        chart?.clear()
-        chart?.setNoDataText("Загрузка графика...")
-        chart?.invalidate()
-
-        if (cache.containsKey(key)) { updateChartUI(); return }
-
-        tvSt?.text = "Загрузка графика..."
-        val url = "https://api.coingecko.com/api/v3/coins/$activeId/market_chart?vs_currency=eur&days=$days"
+    // Фоновая загрузка. Никогда не стирает график при ошибке.
+    private fun fetchDataSilently(symbol: String, pDays: Int) {
+        tvSt?.text = "Фоновая синхронизация..."
+        val url = "https://api.coingecko.com/api/v3/coins/$symbol/market_chart?vs_currency=eur&days=$pDays"
         
         client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { tvSt?.text = "Ошибка сети" }
+                runOnUiThread { tvSt?.text = "Сеть недоступна" }
             }
             override fun onResponse(call: Call, response: Response) {
                 val r = response.body?.string() ?: ""
@@ -150,12 +164,12 @@ class MainActivity : AppCompatActivity() {
                     val entries = ArrayList<Entry>()
                     val dates = ArrayList<String>()
                     
-                    val sdf = when(days) {
+                    val sdf = when(pDays) {
                         1 -> SimpleDateFormat("HH:mm", Locale("ru"))
                         7, 30 -> SimpleDateFormat("dd MMM", Locale("ru"))
                         else -> SimpleDateFormat("MMM yy", Locale("ru"))
                     }
-                    val mult = if (activeId == "bitcoin") 1.0 else 32.1507
+                    val mult = if (symbol == "bitcoin") 1.0 else 32.1507
 
                     for (i in 0 until p.length()) {
                         val pt = p.getJSONArray(i)
@@ -163,13 +177,20 @@ class MainActivity : AppCompatActivity() {
                         dates.add(sdf.format(Date(pt.getLong(0))))
                     }
                     
+                    val key = "${symbol}_$pDays"
                     cache[key] = Pair(entries, dates)
-                    runOnUiThread { updateChartUI(); tvSt?.text = "База обновлена" }
+                    
+                    runOnUiThread { 
+                        // Обновляем график только если скачанные данные соответствуют тому, что сейчас выбрано
+                        if (symbol == activeId && pDays == days) {
+                            updateChartUI() 
+                        }
+                        tvSt?.text = "База обновлена" 
+                    }
                 } catch (e: Exception) { 
                     runOnUiThread { 
-                        tvSt?.text = "Лимит API. Подождите..." 
-                        chart?.setNoDataText("Лимит сервера. Попробуйте через минуту.")
-                        chart?.invalidate()
+                        tvSt?.text = "Пауза API. Используются старые данные." 
+                        // Мы БОЛЬШЕ НЕ СТИРАЕМ график здесь.
                     } 
                 }
             }
