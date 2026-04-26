@@ -133,7 +133,7 @@ class MainActivity : AppCompatActivity() {
     private fun parseAndSetPrices(json: String) {
         try {
             val j = JSONObject(json)
-            tvB?.text = String.format("€%,.0f", j.getJSONObject("bitcoin").getDouble("eur"))
+            tvB?.text = if (j.has("bitcoin")) String.format("€%,.0f", j.getJSONObject("bitcoin").getDouble("eur")) else "Err"
             tvG?.text = String.format("€%,.0f", j.getJSONObject("tether-gold").getDouble("eur") * 32.1507)
             tvS?.text = String.format("€%,.0f", j.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507)
         } catch(e:Exception){}
