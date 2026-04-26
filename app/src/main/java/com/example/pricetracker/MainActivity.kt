@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
         // Кнопки активов (переключаем цвет полоски)
         findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { setAsset("tether-gold") }
         findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { setAsset("kinesis-silver") }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { setAsset("bitcoin") }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { setAsset("bitcoin"); updateTimeButtons() }
 
         // Кнопки времени
         findViewById<Button>(R.id.btn1D).setOnClickListener { setDays(1) }
@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshAll() }
 
         loadPricesFromCache()
-        setAsset("bitcoin")
+        setAsset("bitcoin"); updateTimeButtons()
         handler.post(timerRunnable)
         refreshAll()
     }
@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setDays(d: Int) {
-        days = d
+        days = d; updateTimeButtons()
         showChartFromCache()
         fetchChartData() // Принудительно запрашиваем график при смене времени
     }
@@ -159,8 +159,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507 * 32.1507
-            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507 * 32.1507
+            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507
+            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507
 
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
             tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
