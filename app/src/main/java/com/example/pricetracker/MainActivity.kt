@@ -1,4 +1,5 @@
 package com.example.pricetracker
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
@@ -7,9 +8,12 @@ import android.os.Looper
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.MarkerView
 import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.*
 import com.github.mikephil.charting.formatter.ValueFormatter
+import com.github.mikephil.charting.highlight.Highlight
+import com.github.mikephil.charting.utils.MPPointF
 import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
@@ -24,6 +28,21 @@ class MainActivity : AppCompatActivity() {
     private val cache = mutableMapOf<String, Pair<ArrayList<Entry>, ArrayList<String>>>()
     private val h = Handler(Looper.getMainLooper())
     private var timeLeft = 80
+
+    // Кастомный маркер для процентов
+    inner class ChartMarker(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
+        private val tvContent: TextView = findViewById(R.id.tvMarker)
+        override fun refreshContent(e: Entry?, highlight: Highlight?) {
+            if (e != null) {
+                val diff = e.y - lastPrice
+                val pct = (diff / lastPrice) * 100
+                val sign = if (pct > 0) "+" else ""
+                tvContent.text = String.format(Locale("ru"), "€%,.0f\n%s%.2f%%", e.y, sign, pct)
+            }
+            super.refreshContent(e, highlight)
+        }
+        override fun getOffset(): MPPointF { return MPPointF(-(width / 2f), -height.toFloat() - 20f) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,24 +81,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupChart() {
-        chart?.description?.isEnabled = false
-        chart?.legend?.isEnabled = false
-        chart?.axisRight?.isEnabled = false
-        chart?.setNoDataText("Синхронизация...")
-        chart?.setNoDataTextColor(Color.LTGRAY)
-        
+        chart?.description?.isEnabled = false; chart?.legend?.isEnabled = false; chart?.axisRight?.isEnabled = false
+        chart?.setNoDataText("Синхронизация..."); chart?.setNoDataTextColor(Color.LTGRAY)
         chart?.axisLeft?.textColor = Color.LTGRAY
         chart?.axisLeft?.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float): String {
-                return String.format(Locale("ru"), "%,.0f", value)
-            }
+            override fun getFormattedValue(value: Float): String { return String.format(Locale("ru"), "%,.0f", value) }
         }
-        
-        chart?.xAxis?.textColor = Color.LTGRAY
-        chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
+        chart?.xAxis?.textColor = Color.LTGRAY; chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
         chart?.xAxis?.setDrawGridLines(false)
-        // ИСПРАВЛЕНИЕ ДАТ: Жестко задаем максимум 4 метки на оси X, чтобы текст не слипался
-        chart?.xAxis?.labelCount = 4 
+        chart?.xAxis?.labelCount = 5 // Не больше 5 дат, чтобы не слипались
         chart?.xAxis?.setAvoidFirstLastClipping(true)
     }
 
@@ -94,13 +104,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fullSync() {
-        fetchCurrentPrices() // Запускаем надежный парсер цен
+        fetchCurrentPrices()
         fetchChart("XAUEUR=X")
         fetchChart("XAGEUR=X")
         fetchChart("BTC-EUR")
     }
 
-    // ИСПРАВЛЕНИЕ ЦЕН: Берем цены из независимого источника, который работает всегда (даже в выходные)
     private fun fetchCurrentPrices() {
         val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
         client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
@@ -118,7 +127,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchChart(symbol: String) {
-        val range = when(days) { 1->"3d"; 7->"1wk"; 30->"1mo"; 365->"1y"; else->"5y" }
+        // Для 1D просим 5 дней, чтобы гарантированно захватить пятницу на выходных
+        val range = when(days) { 1->"5d"; 7->"1wk"; 30->"1mo"; 365->"1y"; else->"5y" }
         val interval = when(days) { 1->"15m"; 7->"1h"; 30->"1d"; 365->"1d"; else->"1wk" }
         
         val url = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol?interval=$interval&range=$range"
@@ -133,25 +143,32 @@ class MainActivity : AppCompatActivity() {
                     
                     val entries = ArrayList<Entry>()
                     val dates = ArrayList<String>()
-                    val sdf = SimpleDateFormat(if (days <= 7) "HH:mm dd/MM" else "dd MMM yyyy", Locale("ru"))
+                    
+                    // Умный формат дат без года (только месяцы для длинных периоды)
+                    val sdf = when(days) {
+                        1 -> SimpleDateFormat("HH:mm", Locale("ru"))
+                        7, 30 -> SimpleDateFormat("dd MMM", Locale("ru")) // 25 апр
+                        else -> SimpleDateFormat("MMM", Locale("ru")) // Янв, Фев
+                    }
                     val mult = if (symbol == "BTC-EUR") 1.0 else 32.1507
+
+                    // Если это 1D, находим последнее время торгов и берем только 24 часа от него
+                    val lastTimestamp = ts.getLong(ts.length() - 1)
+                    val cutoffTime = if (days == 1) lastTimestamp - (24 * 60 * 60) else 0L
 
                     var validIndex = 0f
                     for (i in 0 until ts.length()) {
-                        if (!close.isNull(i)) {
+                        val currentTime = ts.getLong(i)
+                        if (!close.isNull(i) && currentTime >= cutoffTime) {
                             val p = close.getDouble(i) * mult
                             entries.add(Entry(validIndex, p.toFloat()))
-                            dates.add(sdf.format(Date(ts.getLong(i) * 1000L)))
+                            dates.add(sdf.format(Date(currentTime * 1000L)))
                             validIndex++
                         }
                     }
                     
                     cache["${symbol}_$days"] = Pair(entries, dates)
-                    
-                    runOnUiThread {
-                        if (symbol == activeId) updateChartUI()
-                        tvSt?.text = "База обновлена"
-                    }
+                    runOnUiThread { if (symbol == activeId) updateChartUI(); tvSt?.text = "База обновлена" }
                 } catch (e: Exception) {}
             }
         })
@@ -159,12 +176,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateChartUI() {
         val cached = cache["${activeId}_$days"]
-        if (cached == null) {
-            chart?.clear()
-            chart?.setNoDataText("Загрузка...")
-            chart?.invalidate()
-            return
-        }
+        if (cached == null) { chart?.clear(); chart?.invalidate(); return }
         
         val entries = cached.first
         val dates = cached.second
@@ -183,7 +195,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        chart?.data = LineData(set)
-        chart?.invalidate()
+        // Подключаем крестик и проценты
+        if (entries.isNotEmpty()) {
+            val lastPrice = entries.last().y
+            chart?.marker = ChartMarker(this, R.layout.marker_view, lastPrice)
+            chart?.setDrawMarkers(true)
+        }
+
+        chart?.data = LineData(set); chart?.invalidate()
     }
 }
