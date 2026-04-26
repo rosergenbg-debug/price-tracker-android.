@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
         if (saved!!.isNotEmpty()) {
             parseAndRenderChart(saved, activeAsset, days)
         } else {
-            chart?.clear(); chart?.setNoDataText("Ожидание Google Server..."); chart?.invalidate()
+            chart?.clear(); chart?.setNoDataText("Warten auf Google Server..."); chart?.invalidate()
         }
     }
 
