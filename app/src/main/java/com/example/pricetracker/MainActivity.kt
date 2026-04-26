@@ -1,292 +1,237 @@
 package com.example.pricetracker
+
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.*
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.github.mikephil.charting.charts.LineChart
-import com.github.mikephil.charting.components.MarkerView
 import com.github.mikephil.charting.components.XAxis
-import com.github.mikephil.charting.data.*
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
 import com.github.mikephil.charting.formatter.ValueFormatter
-import com.github.mikephil.charting.highlight.Highlight
-import com.github.mikephil.charting.utils.MPPointF
 import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
-import java.net.URLEncoder
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
-    private var tvG: TextView? = null; private var tvS: TextView? = null; private var tvB: TextView? = null
-    private var tvT: TextView? = null; private var tvSt: TextView? = null; private var chart: LineChart? = null
-    private val client = OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
-    
-    private var activeAsset = "gold" 
-    private var days = 30
     private lateinit var prefs: SharedPreferences
-    
-    private val syncQueue = mutableListOf<Pair<String, Int>>()
-    private var isSyncing = false
-    private var totalTasks = 15; private var completedTasks = 0
-    private val h = Handler(Looper.getMainLooper()); private var timeLeft = 80
+    private val client = OkHttpClient()
+    private val googleScriptUrl = "https://script.google.com/macros/s/$GOOGLE_PROXY_ID/exec"
 
-    // ИДЕНТИФИКАТОР ТВОЕГО ЛИЧНОГО СЕРВЕРА GOOGLE!
-    private val GOOGLE_PROXY_ID = "AKfycbx40Ydl0c0usqUbH9CGPeaaC8l6vb6Q3b7oxpjf9KMK3Jh3ZmmNtUNa3rdvBz3D20RM"
+    private var activeAsset = "bitcoin"
+    private var days = 1
+    private var timeLeft = 80
 
-    // Волшебная функция, которая пропускает любой адрес через твой сервер
-    private fun getProxyUrl(targetUrl: String): String {
-        val encodedUrl = URLEncoder.encode(targetUrl, "UTF-8")
-        return "https://script.google.com/macros/s/$GOOGLE_PROXY_ID/exec?url=$encodedUrl"
-    }
+    private var chart: LineChart? = null
+    private var tvStatus: TextView? = null
+    private var tvTimer: TextView? = null
+    private var tvGoldPrice: TextView? = null
+    private var tvSilverPrice: TextView? = null
+    private var tvBitcoinPrice: TextView? = null
 
-    inner class ChartMarker(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
-        private val tvContent: TextView = findViewById(R.id.tvMarker)
-        override fun refreshContent(e: Entry?, highlight: Highlight?) {
-            if (e != null) {
-                val diff = e.y - lastPrice
-                val pct = (diff / lastPrice) * 100
-                val sign = if (pct > 0) "+" else ""
-                tvContent.text = String.format(java.util.Locale("de", "DE"), "€%,.0f\n%s%.2f%%", e.y, sign, pct)
-            }
-            super.refreshContent(e, highlight)
+    private val handler = Handler(Looper.getMainLooper())
+    private val timerRunnable = object : Runnable {
+        override fun run() {
+            if (timeLeft > 0) timeLeft--
+            tvTimer?.text = "Aktualisierung: ${timeLeft}s"
+            if (timeLeft == 0) refreshAll()
+            handler.postDelayed(this, 1000)
         }
-        override fun getOffset(): MPPointF { return MPPointF(-(width / 1.2f), -height.toFloat() - 20f) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
-        prefs = getSharedPreferences("PriceTrackerCache", Context.MODE_PRIVATE)
-        tvG = findViewById(R.id.tvGoldPrice); tvS = findViewById(R.id.tvSilverPrice)
-        tvB = findViewById(R.id.tvBitcoinPrice); tvT = findViewById(R.id.tvTimer)
-        tvSt = findViewById(R.id.tvStatus); chart = findViewById(R.id.lineChart)
-        
+
+        prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+
+        chart = findViewById(R.id.lineChart)
+        tvStatus = findViewById(R.id.tvStatus)
+        tvTimer = findViewById(R.id.tvTimer)
+        tvGoldPrice = findViewById(R.id.tvGoldPrice)
+        tvSilverPrice = findViewById(R.id.tvSilverPrice)
+        tvBitcoinPrice = findViewById(R.id.tvBitcoinPrice)
+
         setupChart()
 
-        val btns = listOf<Button>(findViewById(R.id.btn1D), findViewById(R.id.btn1W), 
-                                 findViewById(R.id.btn1M), findViewById(R.id.btn1Y), findViewById(R.id.btn3Y))
+        // Кнопки активов (переключаем цвет полоски)
+        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { setAsset("tether-gold") }
+        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { setAsset("kinesis-silver") }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { setAsset("bitcoin") }
 
-        fun selectBtn(b: Button, d: Int) {
-            btns.forEach { it.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#BA68C8")) }
-            b.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
-            days = d; showFromLocalCache()
-        }
+        // Кнопки времени
+        findViewById<Button>(R.id.btn1D).setOnClickListener { setDays(1) }
+        findViewById<Button>(R.id.btn1W).setOnClickListener { setDays(7) }
+        findViewById<Button>(R.id.btn1M).setOnClickListener { setDays(30) }
+        findViewById<Button>(R.id.btn1Y).setOnClickListener { setDays(365) }
+        findViewById<Button>(R.id.btn3Y).setOnClickListener { setDays(1095) }
 
-        findViewById<Button>(R.id.btn1D).setOnClickListener { selectBtn(it as Button, 1) }
-        findViewById<Button>(R.id.btn1W).setOnClickListener { selectBtn(it as Button, 7) }
-        findViewById<Button>(R.id.btn1M).setOnClickListener { selectBtn(it as Button, 30) }
-        findViewById<Button>(R.id.btn1Y).setOnClickListener { selectBtn(it as Button, 365) }
-        findViewById<Button>(R.id.btn3Y).setOnClickListener { selectBtn(it as Button, 1095) }
-        
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeAsset = "gold"; showFromLocalCache() }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeAsset = "silver"; showFromLocalCache() }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeAsset = "bitcoin"; showFromLocalCache() }
-        
-        findViewById<Button>(R.id.btnRefresh).setOnClickListener { timeLeft = 80; fetchPrices(); buildQueueAndStart() }
+        findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshAll() }
 
         loadPricesFromCache()
-        selectBtn(findViewById(R.id.btn1M), 30)
-        startTimer()
-        fetchPrices(); buildQueueAndStart()
-    }
-
-    private fun isWeekend(): Boolean {
-        val day = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        return day == Calendar.SATURDAY || day == Calendar.SUNDAY
+        setAsset("bitcoin")
+        handler.post(timerRunnable)
+        refreshAll()
     }
 
     private fun setupChart() {
-        chart?.description?.isEnabled = false; chart?.legend?.isEnabled = false; chart?.axisRight?.isEnabled = false
-        chart?.setNoDataText("Данные в пути (Google Server)..."); chart?.setNoDataTextColor(Color.LTGRAY)
-        chart?.axisLeft?.textColor = Color.LTGRAY
-        chart?.axisLeft?.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(v: Float): String = String.format(java.util.Locale("de", "DE"), "%,.0f", v)
+        chart?.apply {
+            description.isEnabled = false
+            legend.isEnabled = false
+            xAxis.position = XAxis.XAxisPosition.BOTTOM
+            xAxis.textColor = Color.WHITE
+            axisLeft.textColor = Color.WHITE
+            axisRight.isEnabled = false
+            setNoDataText("Warten auf Daten...")
+            setNoDataTextColor(Color.WHITE)
         }
-        chart?.xAxis?.textColor = Color.LTGRAY; chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
-        chart?.xAxis?.setDrawGridLines(true); chart?.xAxis?.gridColor = Color.parseColor("#333333")
-        chart?.xAxis?.gridLineWidth = 1f; chart?.xAxis?.setAvoidFirstLastClipping(true)
-        chart?.xAxis?.setLabelCount(4, true)
     }
 
-    private fun startTimer() {
-        h.post(object : Runnable {
-            override fun run() {
-                tvT?.text = "Обновление: ${timeLeft}с"
-                if (timeLeft <= 0) { timeLeft = 80; fetchPrices(); buildQueueAndStart() } else { timeLeft-- }
-                h.postDelayed(this, 1000)
+    private fun setAsset(asset: String) {
+        activeAsset = asset
+        showChartFromCache()
+        fetchChartData() // Принудительно запрашиваем график при смене актива
+    }
+
+    private fun setDays(d: Int) {
+        days = d
+        showChartFromCache()
+        fetchChartData() // Принудительно запрашиваем график при смене времени
+    }
+
+    private fun refreshAll() {
+        timeLeft = 80
+        tvStatus?.text = "Synchronisierung..."
+        fetchPrices()
+        fetchChartData()
+    }
+
+    private fun fetchPrices() {
+        val url = "$googleScriptUrl?url=simple/price"
+        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { tvStatus?.text = "Verbindungsfehler" }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val r = response.body?.string() ?: ""
+                if (response.isSuccessful && r.contains("bitcoin")) {
+                    prefs.edit().putString("last_prices", r).apply()
+                    runOnUiThread {
+                        parseAndSetPrices(r)
+                        tvStatus?.text = "Alle Daten sind aktuell"
+                    }
+                }
+            }
+        })
+    }
+
+    private fun fetchChartData() {
+        val url = "$googleScriptUrl?url=market_chart&asset=$activeAsset&days=$days"
+        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) {
+                val r = response.body?.string() ?: ""
+                if (response.isSuccessful && r.contains("prices")) {
+                    prefs.edit().putString("chart_${activeAsset}_$days", r).apply()
+                    runOnUiThread { showChartFromCache() }
+                }
             }
         })
     }
 
     private fun loadPricesFromCache() {
         val saved = prefs.getString("last_prices", "")
-        if (saved!!.isNotEmpty()) parseAndSetPrices(saved)
+        if (!saved.isNullOrEmpty()) parseAndSetPrices(saved)
     }
 
     private fun parseAndSetPrices(json: String) {
         try {
-            val j = JSONObject(json)
-            tvB?.text = if (j.has("bitcoin")) String.format("€%,.0f", j.getJSONObject("bitcoin").getDouble("eur")) else "Err"
-            tvG?.text = String.format("€%,.0f", j.getJSONObject("tether-gold").getDouble("eur") * 32.1507)
-            tvS?.text = String.format("€%,.0f", j.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507)
-        } catch(e:Exception){}
+            val obj = JSONObject(json)
+            val btc = obj.getJSONObject("bitcoin").getDouble("eur")
+            val gold = obj.getJSONObject("tether-gold").getDouble("eur")
+            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur")
+
+            tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
+            tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.3f", gold)
+            tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
+        } catch (e: Exception) {}
     }
 
-    private fun showFromLocalCache() {
-        var key = "chart_${activeAsset}_$days"; if (activeAsset == "bitcoin" && prefs.getString(key, "").isNullOrEmpty()) { key = "chart_btc_$days" }
-        var saved = prefs.getString(key, ""); if (saved.isNullOrEmpty()) saved = prefs.getString("chart_btc_$days", ""); if (saved.isNullOrEmpty()) saved = prefs.getString("chart_bitcoin_$days", "")
-        if (saved!!.isNotEmpty()) {
-            parseAndRenderChart(saved, activeAsset, days)
-        } else {
-            chart?.clear(); chart?.setNoDataText("Warten auf Google Server..."); chart?.invalidate()
-        }
-    }
-
-    private fun fetchPrices() {
-        val targetUrl = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
-        // Пропускаем запрос через наш прокси
-        val proxyUrl = getProxyUrl(targetUrl)
-        
-        client.newCall(Request.Builder().url(proxyUrl).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) {
-                val r = response.body?.string() ?: ""
-                if (response.isSuccessful && r.contains("bitcoin")) {
-                    prefs.edit().putString("last_prices", r).apply()
-                    runOnUiThread { parseAndSetPrices(r) }
-                }
-            }
-        })
-    }
-
-    private fun buildQueueAndStart() {
-        if (isSyncing) return 
-        syncQueue.clear()
-        val assets = listOf("gold", "silver", "bitcoin")
-        val periods = listOf(1, 7, 30, 365, 1095)
-        for (a in assets) for (p in periods) syncQueue.add(Pair(a, p))
-        totalTasks = syncQueue.size; completedTasks = 0
-        processQueue()
-    }
-
-    private fun processQueue() {
-        if (syncQueue.isEmpty()) {
-            isSyncing = false
-            runOnUiThread { tvSt?.text = "Alle Daten sind aktuell (Google Server)" }
+    private fun showChartFromCache() {
+        val saved = prefs.getString("chart_${activeAsset}_$days", "")
+        if (saved.isNullOrEmpty()) {
+            chart?.clear()
+            chart?.setNoDataText("Warten auf Google Server...")
+            chart?.invalidate()
             return
         }
-        isSyncing = true
-        val task = syncQueue[0]; val asset = task.first; val pDays = task.second
-        val key = "chart_${asset}_$pDays"
 
-        runOnUiThread { tvSt?.text = "Synchronisierung: $completedTasks/$totalTasks..." }
-
-        val useGecko = when {
-            asset == "bitcoin" -> false 
-            pDays > 7 -> false          
-            else -> isWeekend()         
-        }
-
-        val targetUrl = if (useGecko) {
-            val geckoId = if (asset == "gold") "tether-gold" else "kinesis-silver"
-            "https://api.coingecko.com/api/v3/coins/$geckoId/market_chart?vs_currency=eur&days=$pDays"
-        } else {
-            val yahooId = when(asset) { "gold" -> "XAUEUR=X"; "silver" -> "XAGEUR=X"; else -> "BTC-EUR" }
-            val range = when(pDays) { 1->"3d"; 7->"1wk"; 30->"1mo"; 365->"1y"; else->"3y" }
-            val interval = when(pDays) { 1->"15m"; 7->"1h"; 30->"1d"; 365->"1d"; else->"1wk" }
-            "https://query1.finance.yahoo.com/v8/finance/chart/$yahooId?interval=$interval&range=$range"
-        }
-
-        // Пропускаем запрос через наш прокси
-        val proxyUrl = getProxyUrl(targetUrl)
-
-        client.newCall(Request.Builder().url(proxyUrl).header("User-Agent", "Mozilla/5.0").build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { h.postDelayed({ processQueue() }, 5000) }
-            override fun onResponse(call: Call, response: Response) {
-                val r = response.body?.string() ?: ""
-                
-                // Проверяем, не вернул ли прокси свою внутреннюю ошибку
-                if (response.isSuccessful && !r.contains("\"error\":")) {
-                    try {
-                        val wrappedData = JSONObject().apply {
-                            put("source", if (useGecko) "gecko" else "yahoo")
-                            put("data", r)
-                        }.toString()
-                        
-                        prefs.edit().putString(key, wrappedData).apply()
-                        syncQueue.removeAt(0); completedTasks++
-                        
-                        runOnUiThread { if (activeAsset == asset && days == pDays) parseAndRenderChart(wrappedData, asset, pDays) }
-                        h.postDelayed({ processQueue() }, 1500)
-                    } catch (e: Exception) { syncQueue.removeAt(0); h.postDelayed({ processQueue() }, 1500) }
-                } else { 
-                    // Если была ошибка (например, 429 от самой биржи внутри прокси), ждем дольше
-                    syncQueue.removeAt(0); h.postDelayed({ processQueue() }, 5000) 
-                }
-            }
-        })
-    }
-
-    private fun parseAndRenderChart(wrappedJson: String, asset: String, pDays: Int) {
         try {
-            val wrapper = JSONObject(wrappedJson)
-            val source = wrapper.getString("source")
-            val dataStr = wrapper.getString("data")
-            
-            val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
-            val sdf = when(pDays) {
-                1 -> SimpleDateFormat("HH:mm", java.util.Locale("de", "DE"))
-                7, 30 -> SimpleDateFormat("dd MMM", java.util.Locale("de", "DE"))
-                else -> SimpleDateFormat("MMM yy", java.util.Locale("de", "DE"))
+            val obj = JSONObject(saved)
+            val prices = obj.getJSONArray("prices")
+            val entries = ArrayList<Entry>()
+            val dates = ArrayList<String>()
+
+            // НЕМЕЦКИЙ КАЛЕНДАРЬ
+            val sdf = when(days) {
+                1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
+                7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
+                else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
             }
 
-            val dataObj = JSONObject(dataStr); if (dataObj.has("prices")) {
-                val p = JSONObject(dataStr).getJSONArray("prices")
-                val mult = if (asset == "bitcoin" || asset == "btc") 1.0 else 32.1507
-                for (i in 0 until p.length()) {
-                    val pt = p.getJSONArray(i)
-                    entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
-                    dates.add(sdf.format(Date(pt.getLong(0))))
-                }
-            } else { 
-                val json = JSONObject(dataStr).getJSONObject("chart").getJSONArray("result").getJSONObject(0)
-                val ts = json.getJSONArray("timestamp")
-                val close = json.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
-                val mult = if (asset == "bitcoin" || asset == "btc") 1.0 else 32.1507
-                var validIndex = 0f
-                for (i in 0 until ts.length()) {
-                    if (!close.isNull(i)) {
-                        entries.add(Entry(validIndex, (close.getDouble(i) * mult).toFloat()))
-                        dates.add(sdf.format(Date(ts.getLong(i) * 1000L)))
-                        validIndex++
-                    }
-                }
+            // МНОЖИТЕЛИ: Биткоин = 1.0, Металлы = 32.1507
+            val mult = if (activeAsset == "bitcoin") 1.0 else 32.1507
+
+            for (i in 0 until prices.length()) {
+                val pt = prices.getJSONArray(i)
+                entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
+                dates.add(sdf.format(Date(pt.getLong(0))))
             }
 
-            val color = when(asset) { "gold" -> "#FFD700"; "silver" -> "#E0E0E0"; else -> "#F7931A" }
-            val set = LineDataSet(entries, "").apply {
-                this.color = Color.parseColor(color); setDrawCircles(false); setDrawValues(false)
-                lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(color); fillAlpha = 30
+            // ЦВЕТА
+            val colorHex = when(activeAsset) {
+                "tether-gold" -> "#FFD700"
+                "kinesis-silver" -> "#C0C0C0"
+                else -> "#F7931A" // Биткоин - оранжевый
+            }
+            val colorInt = Color.parseColor(colorHex)
+
+            val dataSet = LineDataSet(entries, "").apply {
+                color = colorInt
+                setDrawCircles(false)
+                setDrawValues(false)
+                lineWidth = 2.0f
+                setDrawFilled(true)
+                fillColor = colorInt
+                fillAlpha = 30
                 mode = LineDataSet.Mode.LINEAR
             }
-            
+
             chart?.xAxis?.valueFormatter = object : ValueFormatter() {
                 override fun getFormattedValue(v: Float): String {
-                    val idx = v.toInt(); return if (idx >= 0 && idx < dates.size) dates[idx] else ""
+                    val idx = v.toInt()
+                    return if (idx >= 0 && idx < dates.size) dates[idx] else ""
                 }
             }
-            if (entries.isNotEmpty()) {
-                chart?.marker = ChartMarker(this, R.layout.marker_view, entries.last().y)
-                chart?.setDrawMarkers(true)
-            }
-            chart?.data = LineData(set); chart?.invalidate()
-        } catch (e: Exception) {}
+
+            // Подключаем маркер цены (флажок)
+            try { chart?.marker = ChartMarker(this@MainActivity, R.layout.marker_view, entries.last().y) } catch(e: Exception){}
+            chart?.setDrawMarkers(true)
+
+            chart?.data = LineData(dataSet)
+            chart?.invalidate()
+        } catch (e: Exception) {
+            chart?.clear()
+        }
     }
 }
