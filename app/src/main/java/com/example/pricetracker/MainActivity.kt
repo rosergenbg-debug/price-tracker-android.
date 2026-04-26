@@ -179,14 +179,14 @@ class MainActivity : AppCompatActivity() {
     private fun processQueue() {
         if (syncQueue.isEmpty()) {
             isSyncing = false
-            runOnUiThread { tvSt?.text = "Все данные актуальны (Google Server)" }
+            runOnUiThread { tvSt?.text = "Alle Daten sind aktuell (Google Server)" }
             return
         }
         isSyncing = true
         val task = syncQueue[0]; val asset = task.first; val pDays = task.second
         val key = "chart_${asset}_$pDays"
 
-        runOnUiThread { tvSt?.text = "Синхронизация через прокси: $completedTasks/$totalTasks..." }
+        runOnUiThread { tvSt?.text = "Synchronisierung: $completedTasks/$totalTasks..." }
 
         val useGecko = when {
             asset == "bitcoin" -> false 
