@@ -141,7 +141,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showFromLocalCache() {
         var key = "chart_${activeAsset}_$days"; if (activeAsset == "bitcoin" && prefs.getString(key, "").isNullOrEmpty()) { key = "chart_btc_$days" }
-        val saved = prefs.getString(key, "")
+        var saved = prefs.getString(key, ""); if (saved.isNullOrEmpty()) saved = prefs.getString("chart_btc_$days", ""); if (saved.isNullOrEmpty()) saved = prefs.getString("chart_bitcoin_$days", "")
         if (saved!!.isNotEmpty()) {
             parseAndRenderChart(saved, activeAsset, days)
         } else {
@@ -247,7 +247,7 @@ class MainActivity : AppCompatActivity() {
                 else -> SimpleDateFormat("MMM yy", java.util.Locale("de", "DE"))
             }
 
-            if (source == "gecko") {
+            val dataObj = JSONObject(dataStr); if (dataObj.has("prices")) {
                 val p = JSONObject(dataStr).getJSONArray("prices")
                 val mult = if (asset == "bitcoin" || asset == "btc") 1.0 else 32.1507
                 for (i in 0 until p.length()) {
