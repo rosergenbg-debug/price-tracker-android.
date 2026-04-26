@@ -159,8 +159,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507
-            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507
+            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507 * 32.1507
+            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507 * 32.1507
 
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
             tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
@@ -226,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Подключаем маркер цены (флажок)
-// ChartMarker отключен
+val lastPrice = entries.last().y; chart?.marker = CustomMarkerView(this@MainActivity, R.layout.marker_view, lastPrice); chart?.setDrawMarkers(true)
             chart?.setDrawMarkers(true)
 
             chart?.data = LineData(dataSet)
