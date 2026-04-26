@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#000000" android:padding="10dp">
     
-    <TextView android:id="@+id/tvTimer" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Обновление: 80с" android:textColor="#BA68C8" android:textSize="12sp" android:gravity="right" />
+    <TextView android:id="@+id/tvTimer" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Обновление: 80s" android:textColor="#BA68C8" android:textSize="12sp" android:gravity="right" />
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="3" android:layout_marginTop="5dp" android:layout_marginBottom="10dp">
         <LinearLayout android:id="@+id/layoutGold" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
@@ -30,5 +30,5 @@
     </LinearLayout>
 
     <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="50dp" android:text="ОБНОВИТЬ СЕЙЧАС" android:backgroundTint="#1B5E20" android:textStyle="bold" />
-    <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Синхронизация..." android:textColor="#888888" android:gravity="center" android:layout_marginTop="5dp" android:textSize="10sp"/>
+    <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Synchronisierung..." android:textColor="#888888" android:gravity="center" android:layout_marginTop="5dp" android:textSize="10sp"/>
 </LinearLayout>
