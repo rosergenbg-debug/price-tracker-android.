@@ -26,7 +26,7 @@
         <Button android:id="@+id/btn1W" android:layout_width="55dp" android:layout_height="40dp" android:text="1W" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
         <Button android:id="@+id/btn1M" android:layout_width="55dp" android:layout_height="40dp" android:text="1M" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
         <Button android:id="@+id/btn1Y" android:layout_width="55dp" android:layout_height="40dp" android:text="1Y" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
-        <Button android:id="@+id/btn5Y" android:layout_width="55dp" android:layout_height="40dp" android:text="5Y" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
+        <Button android:id="@+id/btn3Y" android:layout_width="55dp" android:layout_height="40dp" android:text="3Y" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
     </LinearLayout>
 
     <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="50dp" android:text="ОБНОВИТЬ СЕЙЧАС" android:backgroundTint="#1B5E20" android:textStyle="bold" />
