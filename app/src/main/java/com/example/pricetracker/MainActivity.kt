@@ -26,6 +26,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val client = OkHttpClient()
+    private val GOOGLE_PROXY_ID = "AKfycbx40Ydl0c0usqUbH9CGPeaaC8l6vb6Q3b7oxpjf9KMK3Jh3ZmmNtUNa3rdvBz3D20RM"
     private val googleScriptUrl = "https://script.google.com/macros/s/$GOOGLE_PROXY_ID/exec"
 
     private var activeAsset = "bitcoin"
@@ -225,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Подключаем маркер цены (флажок)
-            try { chart?.marker = ChartMarker(this@MainActivity, R.layout.marker_view, entries.last().y) } catch(e: Exception){}
+// ChartMarker отключен
             chart?.setDrawMarkers(true)
 
             chart?.data = LineData(dataSet)
