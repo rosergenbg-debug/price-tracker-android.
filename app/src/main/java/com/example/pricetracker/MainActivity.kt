@@ -39,9 +39,9 @@ class MainActivity : AppCompatActivity() {
                                  findViewById(R.id.btn1M), findViewById(R.id.btn1Y), findViewById(R.id.btn5Y))
 
         fun selectBtn(b: Button, d: Int) {
-            btns.forEach { it.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#BA68C8")) } // Лиловый
-            b.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50")) // Зеленый
-            days = d; fetchYahoo(activeId)
+            btns.forEach { it.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#BA68C8")) }
+            b.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
+            days = d; fetchChart(activeId)
         }
 
         findViewById<Button>(R.id.btn1D).setOnClickListener { selectBtn(it as Button, 1) }
@@ -50,9 +50,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1Y).setOnClickListener { selectBtn(it as Button, 365) }
         findViewById<Button>(R.id.btn5Y).setOnClickListener { selectBtn(it as Button, 1825) }
         
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "XAUEUR=X"; updateUI() }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "XAGEUR=X"; updateUI() }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "BTC-EUR"; updateUI() }
+        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "XAUEUR=X"; updateChartUI() }
+        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "XAGEUR=X"; updateChartUI() }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "BTC-EUR"; updateChartUI() }
         
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { fullSync() }
 
@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
         chart?.description?.isEnabled = false
         chart?.legend?.isEnabled = false
         chart?.axisRight?.isEnabled = false
-        chart?.setNoDataText("Синхронизация с биржей...")
+        chart?.setNoDataText("Синхронизация...")
         chart?.setNoDataTextColor(Color.LTGRAY)
         
         chart?.axisLeft?.textColor = Color.LTGRAY
@@ -74,9 +74,13 @@ class MainActivity : AppCompatActivity() {
                 return String.format(Locale("ru"), "%,.0f", value)
             }
         }
+        
         chart?.xAxis?.textColor = Color.LTGRAY
         chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
         chart?.xAxis?.setDrawGridLines(false)
+        // ИСПРАВЛЕНИЕ ДАТ: Жестко задаем максимум 4 метки на оси X, чтобы текст не слипался
+        chart?.xAxis?.labelCount = 4 
+        chart?.xAxis?.setAvoidFirstLastClipping(true)
     }
 
     private fun startTimer() {
@@ -90,36 +94,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fullSync() {
-        tvSt?.text = "Обновление данных..."
-        listOf("XAUEUR=X", "XAGEUR=X", "BTC-EUR").forEach { fetchYahoo(it) }
+        fetchCurrentPrices() // Запускаем надежный парсер цен
+        fetchChart("XAUEUR=X")
+        fetchChart("XAGEUR=X")
+        fetchChart("BTC-EUR")
     }
 
-    private fun fetchYahoo(symbol: String) {
-        // ХИТРОСТЬ: Для 1D запрашиваем 3 дня, чтобы на выходных график не был пустым!
+    // ИСПРАВЛЕНИЕ ЦЕН: Берем цены из независимого источника, который работает всегда (даже в выходные)
+    private fun fetchCurrentPrices() {
+        val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
+        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) {
+                val r = response.body?.string() ?: ""
+                runOnUiThread { try {
+                    val j = JSONObject(r)
+                    tvB?.text = String.format("€%,.0f", j.getJSONObject("bitcoin").getDouble("eur"))
+                    tvG?.text = String.format("€%,.0f", j.getJSONObject("tether-gold").getDouble("eur") * 32.1507)
+                    tvS?.text = String.format("€%,.0f", j.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507)
+                } catch(e:Exception){} }
+            }
+        })
+    }
+
+    private fun fetchChart(symbol: String) {
         val range = when(days) { 1->"3d"; 7->"1wk"; 30->"1mo"; 365->"1y"; else->"5y" }
         val interval = when(days) { 1->"15m"; 7->"1h"; 30->"1d"; 365->"1d"; else->"1wk" }
         
         val url = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol?interval=$interval&range=$range"
         client.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { tvSt?.text = "Ошибка сети" }
-            }
+            override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) {
                 val r = response.body?.string() ?: ""
                 try {
                     val json = JSONObject(r).getJSONObject("chart").getJSONArray("result").getJSONObject(0)
-                    val currentPrice = json.getJSONObject("meta").getDouble("regularMarketPrice")
                     val ts = json.getJSONArray("timestamp")
                     val close = json.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
                     
                     val entries = ArrayList<Entry>()
                     val dates = ArrayList<String>()
                     val sdf = SimpleDateFormat(if (days <= 7) "HH:mm dd/MM" else "dd MMM yyyy", Locale("ru"))
-                    val mult = if (symbol == "BTC-EUR") 1.0 else 32.1507 // Унции в КГ
+                    val mult = if (symbol == "BTC-EUR") 1.0 else 32.1507
 
                     var validIndex = 0f
                     for (i in 0 until ts.length()) {
-                        // Жесткая проверка на пустоту (Yahoo любит присылать null)
                         if (!close.isNull(i)) {
                             val p = close.getDouble(i) * mult
                             entries.add(Entry(validIndex, p.toFloat()))
@@ -131,21 +149,22 @@ class MainActivity : AppCompatActivity() {
                     cache["${symbol}_$days"] = Pair(entries, dates)
                     
                     runOnUiThread {
-                        val pStr = String.format(Locale("ru"), "€%,.0f", currentPrice * mult)
-                        when(symbol) { "XAUEUR=X" -> tvG?.text = pStr; "XAGEUR=X" -> tvS?.text = pStr; "BTC-EUR" -> tvB?.text = pStr }
-                        if (symbol == activeId) updateUI()
-                        tvSt?.text = "База обновлена (Yahoo Finance)"
+                        if (symbol == activeId) updateChartUI()
+                        tvSt?.text = "База обновлена"
                     }
-                } catch (e: Exception) {
-                    runOnUiThread { tvSt?.text = "Обработка данных..." }
-                }
+                } catch (e: Exception) {}
             }
         })
     }
 
-    private fun updateUI() {
+    private fun updateChartUI() {
         val cached = cache["${activeId}_$days"]
-        if (cached == null) return
+        if (cached == null) {
+            chart?.clear()
+            chart?.setNoDataText("Загрузка...")
+            chart?.invalidate()
+            return
+        }
         
         val entries = cached.first
         val dates = cached.second
@@ -154,7 +173,7 @@ class MainActivity : AppCompatActivity() {
         val set = LineDataSet(entries, "").apply {
             this.color = Color.parseColor(color); setDrawCircles(false); setDrawValues(false)
             lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(color); fillAlpha = 30
-            mode = LineDataSet.Mode.LINEAR // Резкий биржевой график
+            mode = LineDataSet.Mode.LINEAR
         }
         
         chart?.xAxis?.valueFormatter = object : ValueFormatter() {
