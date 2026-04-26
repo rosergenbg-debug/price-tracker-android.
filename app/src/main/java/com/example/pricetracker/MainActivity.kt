@@ -159,11 +159,11 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            val gold = obj.getJSONObject("tether-gold").getDouble("eur")
-            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur")
+            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507
+            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507
 
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
-            tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.3f", gold)
+            tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
             tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
         } catch (e: Exception) {}
     }

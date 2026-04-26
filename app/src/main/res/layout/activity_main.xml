@@ -29,6 +29,6 @@
         <Button android:id="@+id/btn3Y" android:layout_width="55dp" android:layout_height="40dp" android:text="3Y" android:textSize="10sp" android:layout_margin="2dp" android:background="@drawable/btn_rounded" />
     </LinearLayout>
 
-    <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="50dp" android:text="ОБНОВИТЬ СЕЙЧАС" android:backgroundTint="#1B5E20" android:textStyle="bold" />
+    <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="50dp" android:text="JETZT AKTUALISIEREN" android:backgroundTint="#1B5E20" android:textStyle="bold" />
     <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Synchronisierung..." android:textColor="#888888" android:gravity="center" android:layout_marginTop="5dp" android:textSize="10sp"/>
 </LinearLayout>
