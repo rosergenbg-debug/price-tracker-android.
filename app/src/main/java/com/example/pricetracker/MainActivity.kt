@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
                 val diff = e.y - lastPrice
                 val pct = (diff / lastPrice) * 100
                 val sign = if (pct > 0) "+" else ""
-                tvContent.text = String.format(Locale("ru"), "€%,.0f\n%s%.2f%%", e.y, sign, pct)
+                tvContent.text = String.format(java.util.Locale("de", "DE"), "€%,.0f\n%s%.2f%%", e.y, sign, pct)
             }
             super.refreshContent(e, highlight)
         }
@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         chart?.setNoDataText("Данные в пути (Google Server)..."); chart?.setNoDataTextColor(Color.LTGRAY)
         chart?.axisLeft?.textColor = Color.LTGRAY
         chart?.axisLeft?.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(v: Float): String = String.format(Locale("ru"), "%,.0f", v)
+            override fun getFormattedValue(v: Float): String = String.format(java.util.Locale("de", "DE"), "%,.0f", v)
         }
         chart?.xAxis?.textColor = Color.LTGRAY; chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
         chart?.xAxis?.setDrawGridLines(true); chart?.xAxis?.gridColor = Color.parseColor("#333333")
@@ -140,7 +140,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFromLocalCache() {
-        val key = "chart_${activeAsset}_$days"
+        var key = "chart_${activeAsset}_$days"; if (activeAsset == "bitcoin" && prefs.getString(key, "").isNullOrEmpty()) { key = "chart_btc_$days" }
         val saved = prefs.getString(key, "")
         if (saved!!.isNotEmpty()) {
             parseAndRenderChart(saved, activeAsset, days)
@@ -242,14 +242,14 @@ class MainActivity : AppCompatActivity() {
             
             val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
             val sdf = when(pDays) {
-                1 -> SimpleDateFormat("HH:mm", Locale("ru"))
-                7, 30 -> SimpleDateFormat("dd MMM", Locale("ru"))
-                else -> SimpleDateFormat("MMM yy", Locale("ru"))
+                1 -> SimpleDateFormat("HH:mm", java.util.Locale("de", "DE"))
+                7, 30 -> SimpleDateFormat("dd MMM", java.util.Locale("de", "DE"))
+                else -> SimpleDateFormat("MMM yy", java.util.Locale("de", "DE"))
             }
 
             if (source == "gecko") {
                 val p = JSONObject(dataStr).getJSONArray("prices")
-                val mult = if (asset == "bitcoin") 1.0 else 32.1507
+                val mult = if (asset == "bitcoin" || asset == "btc") 1.0 else 32.1507
                 for (i in 0 until p.length()) {
                     val pt = p.getJSONArray(i)
                     entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
@@ -259,7 +259,7 @@ class MainActivity : AppCompatActivity() {
                 val json = JSONObject(dataStr).getJSONObject("chart").getJSONArray("result").getJSONObject(0)
                 val ts = json.getJSONArray("timestamp")
                 val close = json.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
-                val mult = if (asset == "bitcoin") 1.0 else 32.1507
+                val mult = if (asset == "bitcoin" || asset == "btc") 1.0 else 32.1507
                 var validIndex = 0f
                 for (i in 0 until ts.length()) {
                     if (!close.isNull(i)) {
