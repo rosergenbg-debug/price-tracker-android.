@@ -25,11 +25,18 @@ class MainActivity : AppCompatActivity() {
     private var tvT: TextView? = null; private var tvSt: TextView? = null; private var chart: LineChart? = null
     private val client = OkHttpClient(); private var days = 30; private var activeId = "tether-gold"
     
+    // НАШ КЭШ
     private val cache = mutableMapOf<String, Pair<ArrayList<Entry>, ArrayList<String>>>()
+    
+    // Очередь загрузок
+    private val syncQueue = mutableListOf<Pair<String, Int>>()
+    private var isSyncing = false
+    private var totalTasks = 15
+    private var completedTasks = 0
+
     private val h = Handler(Looper.getMainLooper())
     private var timeLeft = 80
 
-    // Кастомный маркер с расчетом процентов
     inner class ChartMarker(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
         private val tvContent: TextView = findViewById(R.id.tvMarker)
         override fun refreshContent(e: Entry?, highlight: Highlight?) {
@@ -61,7 +68,7 @@ class MainActivity : AppCompatActivity() {
             btns.forEach { it.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#BA68C8")) }
             b.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
             days = d
-            showFromCacheOrFetch() // Умная загрузка при клике
+            readFromCache() // Кнопка ТОЛЬКО читает кэш
         }
 
         findViewById<Button>(R.id.btn1D).setOnClickListener { selectBtn(it as Button, 1) }
@@ -70,35 +77,32 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1Y).setOnClickListener { selectBtn(it as Button, 365) }
         findViewById<Button>(R.id.btn5Y).setOnClickListener { selectBtn(it as Button, 1825) }
         
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "tether-gold"; showFromCacheOrFetch() }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "kinesis-silver"; showFromCacheOrFetch() }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "bitcoin"; showFromCacheOrFetch() }
+        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeId = "tether-gold"; readFromCache() }
+        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeId = "kinesis-silver"; readFromCache() }
+        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { activeId = "bitcoin"; readFromCache() }
         
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { 
-            timeLeft = 80
-            fullSync() 
+            timeLeft = 80; fetchPrices(); buildQueueAndStart() 
         }
 
         selectBtn(findViewById(R.id.btn1M), 30)
         startTimer()
-        fullSync() // Первый старт
+        
+        // Первый запуск программы
+        fetchPrices()
+        buildQueueAndStart()
     }
 
     private fun setupChart() {
         chart?.description?.isEnabled = false; chart?.legend?.isEnabled = false; chart?.axisRight?.isEnabled = false
-        chart?.setNoDataText("Ожидание данных..."); chart?.setNoDataTextColor(Color.LTGRAY)
-        
+        chart?.setNoDataText("Ожидание данных из очереди..."); chart?.setNoDataTextColor(Color.LTGRAY)
         chart?.axisLeft?.textColor = Color.LTGRAY
         chart?.axisLeft?.valueFormatter = object : ValueFormatter() {
             override fun getFormattedValue(value: Float): String { return String.format(Locale("ru"), "%,.0f", value) }
         }
-        
-        chart?.xAxis?.textColor = Color.LTGRAY
-        chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
-        chart?.xAxis?.setDrawGridLines(true)
-        chart?.xAxis?.gridColor = Color.parseColor("#333333")
-        chart?.xAxis?.gridLineWidth = 1f
-        chart?.xAxis?.setAvoidFirstLastClipping(true)
+        chart?.xAxis?.textColor = Color.LTGRAY; chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
+        chart?.xAxis?.setDrawGridLines(true); chart?.xAxis?.gridColor = Color.parseColor("#333333")
+        chart?.xAxis?.gridLineWidth = 1f; chart?.xAxis?.setAvoidFirstLastClipping(true)
     }
 
     private fun startTimer() {
@@ -107,31 +111,27 @@ class MainActivity : AppCompatActivity() {
                 tvT?.text = "Обновление: ${timeLeft}с"
                 if (timeLeft <= 0) { 
                     timeLeft = 80
-                    fullSync() // Тихое обновление по таймеру
-                } else { 
-                    timeLeft-- 
-                }
+                    fetchPrices() // Тихо обновляем цены
+                    buildQueueAndStart() // Тихо подкачиваем графики
+                } else { timeLeft-- }
                 h.postDelayed(this, 1000)
             }
         })
     }
 
-    // Логика клика: проверяем кэш, если есть - рисуем сразу. Если нет - качаем.
-    private fun showFromCacheOrFetch() {
+    // Чтение графиков СТРОГО ИЗ ПАМЯТИ
+    private fun readFromCache() {
         val key = "${activeId}_$days"
         if (cache.containsKey(key)) {
-            updateChartUI()
-            tvSt?.text = "Загружено из памяти"
+            renderChart(cache[key]!!.first, cache[key]!!.second)
         } else {
             chart?.clear()
-            chart?.setNoDataText("Загрузка периода...")
+            chart?.setNoDataText("График в очереди на загрузку...")
             chart?.invalidate()
-            fetchDataSilently(activeId, days)
         }
     }
 
-    // Глобальное обновление (цены + текущий график)
-    private fun fullSync() {
+    private fun fetchPrices() {
         val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
         client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
@@ -145,97 +145,108 @@ class MainActivity : AppCompatActivity() {
                 } catch(e:Exception){} }
             }
         })
-        fetchDataSilently(activeId, days)
     }
 
-    // Фоновая загрузка. Никогда не стирает график при ошибке.
-    private fun fetchDataSilently(symbol: String, pDays: Int) {
-        tvSt?.text = "Фоновая синхронизация..."
+    // МЕНЕДЖЕР ФОНОВОЙ ЗАГРУЗКИ (КАК ТОРРЕНТ)
+    private fun buildQueueAndStart() {
+        if (isSyncing) return // Если уже качаем, не мешаем
+        syncQueue.clear()
+        val assets = listOf("tether-gold", "kinesis-silver", "bitcoin")
+        val periods = listOf(1, 7, 30, 365, 1825)
+        for (a in assets) {
+            for (p in periods) syncQueue.add(Pair(a, p))
+        }
+        totalTasks = syncQueue.size
+        completedTasks = 0
+        processQueue()
+    }
+
+    private fun processQueue() {
+        if (syncQueue.isEmpty()) {
+            isSyncing = false
+            runOnUiThread { tvSt?.text = "Все данные в кэше (100%)" }
+            return
+        }
+        isSyncing = true
+        val task = syncQueue[0]
+        val symbol = task.first
+        val pDays = task.second
+        val key = "${symbol}_$pDays"
+
+        runOnUiThread { tvSt?.text = "Фоновая загрузка в кэш: $completedTasks/$totalTasks..." }
+
         val url = "https://api.coingecko.com/api/v3/coins/$symbol/market_chart?vs_currency=eur&days=$pDays"
-        
         client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { tvSt?.text = "Сеть недоступна" }
+                // Если нет интернета - ждем 3 сек и пробуем снова
+                h.postDelayed({ processQueue() }, 3000)
             }
             override fun onResponse(call: Call, response: Response) {
+                if (response.code == 429) {
+                    // ЕСЛИ БИРЖА РУГАЕТСЯ (ЛИМИТ) -> Ждем 5 секунд и повторяем этот же файл
+                    h.postDelayed({ processQueue() }, 5000)
+                    return
+                }
                 val r = response.body?.string() ?: ""
                 try {
                     val p = JSONObject(r).getJSONArray("prices")
-                    val entries = ArrayList<Entry>()
-                    val dates = ArrayList<String>()
-                    
+                    val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
                     val sdf = when(pDays) {
                         1 -> SimpleDateFormat("HH:mm", Locale("ru"))
                         7, 30 -> SimpleDateFormat("dd MMM", Locale("ru"))
                         else -> SimpleDateFormat("MMM yy", Locale("ru"))
                     }
                     val mult = if (symbol == "bitcoin") 1.0 else 32.1507
-
                     for (i in 0 until p.length()) {
                         val pt = p.getJSONArray(i)
                         entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
                         dates.add(sdf.format(Date(pt.getLong(0))))
                     }
                     
-                    val key = "${symbol}_$pDays"
+                    // Сохраняем в кэш
                     cache[key] = Pair(entries, dates)
                     
-                    runOnUiThread { 
-                        // Обновляем график только если скачанные данные соответствуют тому, что сейчас выбрано
-                        if (symbol == activeId && pDays == days) {
-                            updateChartUI() 
-                        }
-                        tvSt?.text = "База обновлена" 
-                    }
+                    // Удаляем выполненную задачу из очереди
+                    syncQueue.removeAt(0)
+                    completedTasks++
+                    
+                    // Если скачался именно тот график, на который мы сейчас смотрим - отрисовываем
+                    runOnUiThread { if (activeId == symbol && days == pDays) readFromCache() }
+                    
+                    // Переходим к следующему файлу с безопасной паузой 1.5 секунды
+                    h.postDelayed({ processQueue() }, 1500)
+                    
                 } catch (e: Exception) { 
-                    runOnUiThread { 
-                        tvSt?.text = "Пауза API. Используются старые данные." 
-                        // Мы БОЛЬШЕ НЕ СТИРАЕМ график здесь.
-                    } 
+                    // Если битая дата - удаляем задачу и идем дальше
+                    syncQueue.removeAt(0)
+                    h.postDelayed({ processQueue() }, 1500)
                 }
             }
         })
     }
 
-    private fun updateChartUI() {
-        val cached = cache["${activeId}_$days"] ?: return
-        val entries = cached.first
-        val dates = cached.second
-        
+    private fun renderChart(entries: ArrayList<Entry>, dates: ArrayList<String>) {
         val color = when {
             activeId.contains("gold") -> "#FFD700"
             activeId.contains("silver") -> "#E0E0E0"
             else -> "#F7931A"
         }
-        
         val set = LineDataSet(entries, "").apply {
             this.color = Color.parseColor(color); setDrawCircles(false); setDrawValues(false)
             lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(color); fillAlpha = 30
             mode = LineDataSet.Mode.LINEAR
         }
-        
-        chart?.xAxis?.labelCount = when(days) {
-            1 -> 6
-            7 -> 7
-            30 -> 6
-            365 -> 12
-            else -> 5
-        }
-
+        chart?.xAxis?.labelCount = when(days) { 1->6; 7->7; 30->6; 365->12; else->5 }
         chart?.xAxis?.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float): String {
-                val idx = value.toInt()
-                return if (idx >= 0 && idx < dates.size) dates[idx] else ""
+            override fun getFormattedValue(v: Float): String {
+                val idx = v.toInt(); return if (idx >= 0 && idx < dates.size) dates[idx] else ""
             }
         }
-
         if (entries.isNotEmpty()) {
             val lastPrice = entries.last().y
             chart?.marker = ChartMarker(this, R.layout.marker_view, lastPrice)
             chart?.setDrawMarkers(true)
         }
-
-        chart?.data = LineData(set)
-        chart?.invalidate()
+        chart?.data = LineData(set); chart?.invalidate()
     }
 }
