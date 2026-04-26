@@ -18,6 +18,7 @@ import com.github.mikephil.charting.utils.MPPointF
 import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -26,15 +27,23 @@ class MainActivity : AppCompatActivity() {
     private var tvT: TextView? = null; private var tvSt: TextView? = null; private var chart: LineChart? = null
     private val client = OkHttpClient()
     
-    // Внутренние ID активов: "gold", "silver", "bitcoin"
     private var activeAsset = "gold" 
     private var days = 30
-    
     private lateinit var prefs: SharedPreferences
+    
     private val syncQueue = mutableListOf<Pair<String, Int>>()
     private var isSyncing = false
     private var totalTasks = 15; private var completedTasks = 0
     private val h = Handler(Looper.getMainLooper()); private var timeLeft = 80
+
+    // ИДЕНТИФИКАТОР ТВОЕГО ЛИЧНОГО СЕРВЕРА GOOGLE!
+    private val GOOGLE_PROXY_ID = "AKfycbx40YdlOcOusqUbH9CGPeaaC8l6vb6Q3b7oxpjf9KMK3Jh3ZmmNtUNa3rdvBz3D20RM"
+
+    // Волшебная функция, которая пропускает любой адрес через твой сервер
+    private fun getProxyUrl(targetUrl: String): String {
+        val encodedUrl = URLEncoder.encode(targetUrl, "UTF-8")
+        return "https://script.google.com/macros/s/$GOOGLE_PROXY_ID/exec?url=$encodedUrl"
+    }
 
     inner class ChartMarker(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
         private val tvContent: TextView = findViewById(R.id.tvMarker)
@@ -74,7 +83,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1W).setOnClickListener { selectBtn(it as Button, 7) }
         findViewById<Button>(R.id.btn1M).setOnClickListener { selectBtn(it as Button, 30) }
         findViewById<Button>(R.id.btn1Y).setOnClickListener { selectBtn(it as Button, 365) }
-        findViewById<Button>(R.id.btn3Y).setOnClickListener { selectBtn(it as Button, 1095) } // 3 года
+        findViewById<Button>(R.id.btn3Y).setOnClickListener { selectBtn(it as Button, 1095) }
         
         findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { activeAsset = "gold"; showFromLocalCache() }
         findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { activeAsset = "silver"; showFromLocalCache() }
@@ -95,7 +104,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupChart() {
         chart?.description?.isEnabled = false; chart?.legend?.isEnabled = false; chart?.axisRight?.isEnabled = false
-        chart?.setNoDataText("Нет сохраненных данных. Идет скачивание..."); chart?.setNoDataTextColor(Color.LTGRAY)
+        chart?.setNoDataText("Данные в пути (Google Server)..."); chart?.setNoDataTextColor(Color.LTGRAY)
         chart?.axisLeft?.textColor = Color.LTGRAY
         chart?.axisLeft?.valueFormatter = object : ValueFormatter() {
             override fun getFormattedValue(v: Float): String = String.format(Locale("ru"), "%,.0f", v)
@@ -103,7 +112,6 @@ class MainActivity : AppCompatActivity() {
         chart?.xAxis?.textColor = Color.LTGRAY; chart?.xAxis?.position = XAxis.XAxisPosition.BOTTOM
         chart?.xAxis?.setDrawGridLines(true); chart?.xAxis?.gridColor = Color.parseColor("#333333")
         chart?.xAxis?.gridLineWidth = 1f; chart?.xAxis?.setAvoidFirstLastClipping(true)
-        // ЖЕСТКАЯ ФИКСАЦИЯ ДАТ: Ровно 4 метки, равномерно распределенные. Никакой каши.
         chart?.xAxis?.setLabelCount(4, true)
     }
 
@@ -135,21 +143,22 @@ class MainActivity : AppCompatActivity() {
         val key = "chart_${activeAsset}_$days"
         val saved = prefs.getString(key, "")
         if (saved!!.isNotEmpty()) {
-            // В кэше лежит JSON, где есть ключ source ("gecko" или "yahoo"), чтобы правильно его распарсить
             parseAndRenderChart(saved, activeAsset, days)
         } else {
-            chart?.clear(); chart?.setNoDataText("Ожидание сети..."); chart?.invalidate()
+            chart?.clear(); chart?.setNoDataText("Ожидание Google Server..."); chart?.invalidate()
         }
     }
 
     private fun fetchPrices() {
-        // Цены ВСЕГДА тянем с Gecko, они работают 24/7
-        val url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
-        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
+        val targetUrl = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether-gold,kinesis-silver&vs_currencies=eur"
+        // Пропускаем запрос через наш прокси
+        val proxyUrl = getProxyUrl(targetUrl)
+        
+        client.newCall(Request.Builder().url(proxyUrl).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) {
                 val r = response.body?.string() ?: ""
-                if (response.isSuccessful) {
+                if (response.isSuccessful && r.contains("bitcoin")) {
                     prefs.edit().putString("last_prices", r).apply()
                     runOnUiThread { parseAndSetPrices(r) }
                 }
@@ -161,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         if (isSyncing) return 
         syncQueue.clear()
         val assets = listOf("gold", "silver", "bitcoin")
-        val periods = listOf(1, 7, 30, 365, 1095) // 1095 = 3 года
+        val periods = listOf(1, 7, 30, 365, 1095)
         for (a in assets) for (p in periods) syncQueue.add(Pair(a, p))
         totalTasks = syncQueue.size; completedTasks = 0
         processQueue()
@@ -170,23 +179,22 @@ class MainActivity : AppCompatActivity() {
     private fun processQueue() {
         if (syncQueue.isEmpty()) {
             isSyncing = false
-            runOnUiThread { tvSt?.text = "Все данные актуальны" }
+            runOnUiThread { tvSt?.text = "Все данные актуальны (Google Server)" }
             return
         }
         isSyncing = true
         val task = syncQueue[0]; val asset = task.first; val pDays = task.second
         val key = "chart_${asset}_$pDays"
 
-        runOnUiThread { tvSt?.text = "Синхронизация баз: $completedTasks/$totalTasks..." }
+        runOnUiThread { tvSt?.text = "Синхронизация через прокси: $completedTasks/$totalTasks..." }
 
-        // ГИБРИДНАЯ ЛОГИКА ВЫБОРА API
         val useGecko = when {
-            asset == "bitcoin" -> false // Биткоин всегда через Yahoo
-            pDays > 7 -> false          // Длинные периоды всегда через Yahoo
-            else -> isWeekend()         // 1D и 1W для металлов: на выходных через Gecko
+            asset == "bitcoin" -> false 
+            pDays > 7 -> false          
+            else -> isWeekend()         
         }
 
-        val url = if (useGecko) {
+        val targetUrl = if (useGecko) {
             val geckoId = if (asset == "gold") "tether-gold" else "kinesis-silver"
             "https://api.coingecko.com/api/v3/coins/$geckoId/market_chart?vs_currency=eur&days=$pDays"
         } else {
@@ -196,14 +204,17 @@ class MainActivity : AppCompatActivity() {
             "https://query1.finance.yahoo.com/v8/finance/chart/$yahooId?interval=$interval&range=$range"
         }
 
-        client.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()).enqueue(object : Callback {
+        // Пропускаем запрос через наш прокси
+        val proxyUrl = getProxyUrl(targetUrl)
+
+        client.newCall(Request.Builder().url(proxyUrl).header("User-Agent", "Mozilla/5.0").build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { h.postDelayed({ processQueue() }, 5000) }
             override fun onResponse(call: Call, response: Response) {
-                if (response.code == 429) { h.postDelayed({ processQueue() }, 10000); return }
                 val r = response.body?.string() ?: ""
-                if (response.isSuccessful) {
+                
+                // Проверяем, не вернул ли прокси свою внутреннюю ошибку
+                if (response.isSuccessful && !r.contains("\"error\":")) {
                     try {
-                        // Оборачиваем ответ, чтобы при чтении знать, как парсить
                         val wrappedData = JSONObject().apply {
                             put("source", if (useGecko) "gecko" else "yahoo")
                             put("data", r)
@@ -215,7 +226,10 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread { if (activeAsset == asset && days == pDays) parseAndRenderChart(wrappedData, asset, pDays) }
                         h.postDelayed({ processQueue() }, 1500)
                     } catch (e: Exception) { syncQueue.removeAt(0); h.postDelayed({ processQueue() }, 1500) }
-                } else { syncQueue.removeAt(0); h.postDelayed({ processQueue() }, 1500) }
+                } else { 
+                    // Если была ошибка (например, 429 от самой биржи внутри прокси), ждем дольше
+                    syncQueue.removeAt(0); h.postDelayed({ processQueue() }, 5000) 
+                }
             }
         })
     }
@@ -229,8 +243,8 @@ class MainActivity : AppCompatActivity() {
             val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
             val sdf = when(pDays) {
                 1 -> SimpleDateFormat("HH:mm", Locale("ru"))
-                7, 30 -> SimpleDateFormat("dd MMM", Locale("ru")) // 26 Апр
-                else -> SimpleDateFormat("MMM yy", Locale("ru"))  // Апр 25
+                7, 30 -> SimpleDateFormat("dd MMM", Locale("ru"))
+                else -> SimpleDateFormat("MMM yy", Locale("ru"))
             }
 
             if (source == "gecko") {
@@ -241,7 +255,7 @@ class MainActivity : AppCompatActivity() {
                     entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
                     dates.add(sdf.format(Date(pt.getLong(0))))
                 }
-            } else { // yahoo
+            } else { 
                 val json = JSONObject(dataStr).getJSONObject("chart").getJSONArray("result").getJSONObject(0)
                 val ts = json.getJSONArray("timestamp")
                 val close = json.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close")
