@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
 
         setupChart()
 
+        // Кнопки теперь отправляют ПРОСТЫЕ имена
         findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("gold") }
         findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("silver") }
         findViewById<LinearLayout>(R.id.layoutBtc)?.setOnClickListener { setAsset("bitcoin") }
@@ -88,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             xAxis.textColor = Color.WHITE
             axisLeft.textColor = Color.WHITE
             axisRight.isEnabled = false
-            setNoDataText("Warten auf Daten...")
+            setNoDataText("Warten на данные...")
             setNoDataTextColor(Color.WHITE)
         }
     }
@@ -133,7 +134,7 @@ class MainActivity : AppCompatActivity() {
                 val r = response.body?.string() ?: ""
                 if (response.isSuccessful && r.contains("bitcoin")) {
                     prefs.edit().putString("last_prices", r).apply()
-                    runOnUiThread { parseAndSetPrices(r); tvStatus?.text = "Alle Daten sind aktuell" }
+                    runOnUiThread { parseAndSetPrices(r); tvStatus?.text = "Все данные актуальны" }
                 }
             }
         })
@@ -145,7 +146,10 @@ class MainActivity : AppCompatActivity() {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) {
                 val r = response.body?.string() ?: ""
-                if (response.isSuccessful && r.contains("prices")) {
+                // Если пришла ошибка или пустой график - не портим кэш!
+                if (response.isSuccessful && r.contains("prices") && !r.contains("[[") ) {
+                     // Пропускаем пустые ответы
+                } else if (response.isSuccessful && r.contains("prices")) {
                     prefs.edit().putString("chart_${activeAsset}_$days", r).apply()
                     runOnUiThread { showChartFromCache() }
                 }
@@ -162,8 +166,14 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            val gold = obj.getJSONObject("gold").getDouble("eur") * 32.1507
-            val silver = obj.getJSONObject("silver").getDouble("eur") * 32.1507
+            
+            // Умный поиск: понимаем и старые, и новые имена от сервера
+            val gKey = if (obj.has("tether-gold")) "tether-gold" else "gold"
+            val sKey = if (obj.has("kinesis-silver")) "kinesis-silver" else "silver"
+            
+            val gold = obj.getJSONObject(gKey).getDouble("eur") * 32.1507
+            val silver = obj.getJSONObject(sKey).getDouble("eur") * 32.1507
+            
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
             tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
             tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
@@ -172,13 +182,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun showChartFromCache() {
         var saved = prefs.getString("chart_${activeAsset}_$days", "")
-        if (saved.isNullOrEmpty()) saved = prefs.getString("chart_btc_$days", "")
+        // Если для нового имени нет данных - пробуем найти по старому
+        if (saved.isNullOrEmpty() && activeAsset == "gold") saved = prefs.getString("chart_tether-gold_$days", "")
+        if (saved.isNullOrEmpty() && activeAsset == "silver") saved = prefs.getString("chart_kinesis-silver_$days", "")
+        
         if (saved.isNullOrEmpty()) {
             chart?.clear(); chart?.setNoDataText("Warten..."); chart?.invalidate()
             return
         }
         try {
             val prices = JSONObject(saved).getJSONArray("prices")
+            if (prices.length() < 2) return // Не рисуем графики из 1 точки
+
             val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
             val sdf = when(days) {
                 1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
@@ -191,9 +206,13 @@ class MainActivity : AppCompatActivity() {
                 entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
                 dates.add(sdf.format(Date(pt.getLong(0))))
             }
-            val colorHex = when(activeAsset) {
-                "gold" -> "#FFD700"; "silver" -> "#C0C0C0"; else -> "#F7931A"
+            
+            val colorHex = when {
+                activeAsset.contains("gold") -> "#FFD700"
+                activeAsset.contains("silver") -> "#C0C0C0"
+                else -> "#F7931A"
             }
+            
             val dataSet = LineDataSet(entries, "").apply {
                 color = Color.parseColor(colorHex); setDrawCircles(false); setDrawValues(false)
                 lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(colorHex); fillAlpha = 30
