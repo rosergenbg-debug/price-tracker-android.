@@ -3,11 +3,11 @@
     android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000">
     <LinearLayout android:id="@+id/header" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="10dp" android:gravity="center">
         <LinearLayout android:id="@+id/layoutGold" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/gold_ingot"/>
+            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/gold"/>
             <TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="€0" android:textColor="#FFD700" android:textSize="18sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:id="@+id/layoutSilver" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/silver_ingot"/>
+            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/silver"/>
             <TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="€0" android:textColor="#C0C0C0" android:textSize="18sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:id="@+id/layoutBtc" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
