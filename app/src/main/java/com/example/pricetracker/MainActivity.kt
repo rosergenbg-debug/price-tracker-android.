@@ -26,7 +26,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val client = OkHttpClient()
-    private val googleScriptUrl = "$URL"
+    private val googleScriptUrl = ""
 
     private var activeAsset = "bitcoin"
     private var days = 1
