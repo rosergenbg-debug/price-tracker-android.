@@ -20,8 +20,7 @@ import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
@@ -54,7 +53,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
-
         chart = findViewById(R.id.lineChart)
         tvStatus = findViewById(R.id.tvStatus)
         tvTimer = findViewById(R.id.tvTimer)
@@ -73,12 +71,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1M).setOnClickListener { setDays(30) }
         findViewById<Button>(R.id.btn1Y).setOnClickListener { setDays(365) }
         findViewById<Button>(R.id.btn3Y).setOnClickListener { setDays(1095) }
-
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshAll() }
 
         loadPricesFromCache()
         setAsset("bitcoin")
-        setDays(1)
+        updateTimeButtons()
         handler.post(timerRunnable)
         refreshAll()
     }
@@ -168,12 +165,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            
-            // Умножение на 32.1507 происходит РОВНО ОДИН РАЗ
             val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507
             val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507
-
-            // Выводим цены без лишних нулей после запятой
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
             tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
             tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
@@ -183,71 +176,40 @@ class MainActivity : AppCompatActivity() {
     private fun showChartFromCache() {
         var saved = prefs.getString("chart_${activeAsset}_$days", "")
         if (saved.isNullOrEmpty()) saved = prefs.getString("chart_btc_$days", "")
-        if (saved.isNullOrEmpty()) saved = prefs.getString("chart_bitcoin_$days", "")
-        
         if (saved.isNullOrEmpty()) {
-            chart?.clear()
-            chart?.setNoDataText("Warten auf Google Server...")
-            chart?.invalidate()
+            chart?.clear(); chart?.setNoDataText("Warten auf Google Server..."); chart?.invalidate()
             return
         }
-
         try {
-            val obj = JSONObject(saved)
-            val prices = obj.getJSONArray("prices")
-            val entries = ArrayList<Entry>()
-            val dates = ArrayList<String>()
-
+            val prices = JSONObject(saved).getJSONArray("prices")
+            val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
             val sdf = when(days) {
                 1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
                 7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
                 else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
             }
-
             val mult = if (activeAsset == "bitcoin") 1.0 else 32.1507
-
             for (i in 0 until prices.length()) {
                 val pt = prices.getJSONArray(i)
                 entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
                 dates.add(sdf.format(Date(pt.getLong(0))))
             }
-
             val colorHex = when(activeAsset) {
-                "tether-gold" -> "#FFD700"
-                "kinesis-silver" -> "#C0C0C0"
-                else -> "#F7931A"
+                "tether-gold" -> "#FFD700"; "kinesis-silver" -> "#C0C0C0"; else -> "#F7931A"
             }
-            val colorInt = Color.parseColor(colorHex)
-
             val dataSet = LineDataSet(entries, "").apply {
-                color = colorInt
-                setDrawCircles(false)
-                setDrawValues(false)
-                lineWidth = 2.0f
-                setDrawFilled(true)
-                fillColor = colorInt
-                fillAlpha = 30
-                mode = LineDataSet.Mode.LINEAR
+                color = Color.parseColor(colorHex); setDrawCircles(false); setDrawValues(false)
+                lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(colorHex); fillAlpha = 30
             }
-
             chart?.xAxis?.valueFormatter = object : ValueFormatter() {
                 override fun getFormattedValue(v: Float): String {
-                    val idx = v.toInt()
-                    return if (idx >= 0 && idx < dates.size) dates[idx] else ""
+                    val idx = v.toInt(); return if (idx >= 0 && idx < dates.size) dates[idx] else ""
                 }
             }
-
-            // Подключаем всплывающий маркер с процентами
-            try { 
-                val lastPrice = entries.last().y
-                chart?.marker = CustomMarkerView(this@MainActivity, R.layout.marker_view, lastPrice)
-            } catch(e: Exception){}
-            chart?.setDrawMarkers(true)
-
-            chart?.data = LineData(dataSet)
-            chart?.invalidate()
-        } catch (e: Exception) {
-            chart?.clear()
-        }
+            if (entries.isNotEmpty()) {
+                chart?.marker = CustomMarkerView(this@MainActivity, R.layout.marker_view, entries.last().y)
+            }
+            chart?.data = LineData(dataSet); chart?.invalidate()
+        } catch (e: Exception) {}
     }
 }
