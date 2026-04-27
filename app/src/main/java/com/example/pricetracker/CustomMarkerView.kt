@@ -5,24 +5,18 @@ import com.github.mikephil.charting.components.MarkerView
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.highlight.Highlight
 import com.github.mikephil.charting.utils.MPPointF
-import java.text.DecimalFormat
+import java.util.Locale
 
-class CustomMarkerView(context: Context, layoutResource: Int) : MarkerView(context, layoutResource) {
+class CustomMarkerView(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
     private val tvContent: TextView? = findViewById(R.id.tvContent)
-    private val format = DecimalFormat("##0.00")
     override fun refreshContent(e: Entry?, highlight: Highlight?) {
-        e?.let { currentPoint ->
-            val dataSet = chartView?.data?.getDataSetByIndex(highlight?.dataSetIndex ?: 0)
-            val lastPoint = dataSet?.getEntryForIndex(dataSet.entryCount - 1)
-            val diffPercent = if (lastPoint != null && lastPoint.y != 0f) {
-                ((currentPoint.y - lastPoint.y) / lastPoint.y) * 100
-            } else 0f
-            val sign = if (diffPercent > 0) "+" else ""
-            tvContent?.text = "€${format.format(currentPoint.y)}\nΔ: $sign${format.format(diffPercent)}%"
+        if (e != null && lastPrice > 0f) {
+            val value = e.y
+            val percent = ((value - lastPrice) / lastPrice) * 100
+            val sign = if (percent > 0) "+" else ""
+            tvContent?.text = String.format(Locale.GERMAN, "€%,.0f\n%s%.2f%%", value, sign, percent)
         }
         super.refreshContent(e, highlight)
     }
-    override fun getOffset(): MPPointF {
-        return MPPointF(-(width / 2f), -height.toFloat() - 20f)
-    }
+    override fun getOffset(): MPPointF = MPPointF(-(width / 2f), -height.toFloat() - 25f)
 }
