@@ -1,5 +1,7 @@
 package com.example.pricetracker
 
+// Уникальная метка сборки для GitHub: Mon Apr 27 11:48:21 CEST 2026
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -25,7 +27,7 @@ import java.util.*
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val client = OkHttpClient()
-    private val googleScriptUrl = ""
+    private val googleScriptUrl = "https://script.google.com/macros/s/MISSING_URL/exec"
 
     private var activeAsset = "bitcoin"
     private var days = 1
@@ -62,20 +64,20 @@ class MainActivity : AppCompatActivity() {
 
         setupChart()
 
-        findViewById<LinearLayout>(R.id.layoutGold).setOnClickListener { setAsset("tether-gold") }
-        findViewById<LinearLayout>(R.id.layoutSilver).setOnClickListener { setAsset("kinesis-silver") }
-        findViewById<LinearLayout>(R.id.layoutBtc).setOnClickListener { setAsset("bitcoin") }
+        findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("tether-gold") }
+        findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("kinesis-silver") }
+        findViewById<LinearLayout>(R.id.layoutBtc)?.setOnClickListener { setAsset("bitcoin") }
 
-        findViewById<Button>(R.id.btn1D).setOnClickListener { setDays(1) }
-        findViewById<Button>(R.id.btn1W).setOnClickListener { setDays(7) }
-        findViewById<Button>(R.id.btn1M).setOnClickListener { setDays(30) }
-        findViewById<Button>(R.id.btn1Y).setOnClickListener { setDays(365) }
-        findViewById<Button>(R.id.btn3Y).setOnClickListener { setDays(1095) }
-        findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshAll() }
+        findViewById<Button>(R.id.btn1D)?.setOnClickListener { setDays(1) }
+        findViewById<Button>(R.id.btn1W)?.setOnClickListener { setDays(7) }
+        findViewById<Button>(R.id.btn1M)?.setOnClickListener { setDays(30) }
+        findViewById<Button>(R.id.btn1Y)?.setOnClickListener { setDays(365) }
+        findViewById<Button>(R.id.btn3Y)?.setOnClickListener { setDays(1095) }
+        findViewById<Button>(R.id.btnRefresh)?.setOnClickListener { refreshAll() }
 
         loadPricesFromCache()
-        setAsset("bitcoin")
         updateTimeButtons()
+        setAsset("bitcoin")
         handler.post(timerRunnable)
         refreshAll()
     }
@@ -96,11 +98,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateTimeButtons() {
         val active = Color.parseColor("#4CAF50")
         val inactive = Color.parseColor("#AB47BC")
-        findViewById<Button>(R.id.btn1D).setBackgroundColor(if (days == 1) active else inactive)
-        findViewById<Button>(R.id.btn1W).setBackgroundColor(if (days == 7) active else inactive)
-        findViewById<Button>(R.id.btn1M).setBackgroundColor(if (days == 30) active else inactive)
-        findViewById<Button>(R.id.btn1Y).setBackgroundColor(if (days == 365) active else inactive)
-        findViewById<Button>(R.id.btn3Y).setBackgroundColor(if (days == 1095) active else inactive)
+        findViewById<Button>(R.id.btn1D)?.setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (days == 1) active else inactive))
+        findViewById<Button>(R.id.btn1W)?.setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (days == 7) active else inactive))
+        findViewById<Button>(R.id.btn1M)?.setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (days == 30) active else inactive))
+        findViewById<Button>(R.id.btn1Y)?.setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (days == 365) active else inactive))
+        findViewById<Button>(R.id.btn3Y)?.setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (days == 1095) active else inactive))
     }
 
     private fun setAsset(asset: String) {
@@ -133,10 +135,7 @@ class MainActivity : AppCompatActivity() {
                 val r = response.body?.string() ?: ""
                 if (response.isSuccessful && r.contains("bitcoin")) {
                     prefs.edit().putString("last_prices", r).apply()
-                    runOnUiThread {
-                        parseAndSetPrices(r)
-                        tvStatus?.text = "Alle Daten sind aktuell"
-                    }
+                    runOnUiThread { parseAndSetPrices(r); tvStatus?.text = "Alle Daten sind aktuell" }
                 }
             }
         })
@@ -177,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         var saved = prefs.getString("chart_${activeAsset}_$days", "")
         if (saved.isNullOrEmpty()) saved = prefs.getString("chart_btc_$days", "")
         if (saved.isNullOrEmpty()) {
-            chart?.clear(); chart?.setNoDataText("Warten auf Google Server..."); chart?.invalidate()
+            chart?.clear(); chart?.setNoDataText("Warten..."); chart?.invalidate()
             return
         }
         try {
