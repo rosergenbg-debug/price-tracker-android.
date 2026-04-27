@@ -62,8 +62,8 @@ class MainActivity : AppCompatActivity() {
 
         setupChart()
 
-        findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("tether-gold") }
-        findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("kinesis-silver") }
+        findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("gold") }
+        findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("silver") }
         findViewById<LinearLayout>(R.id.layoutBtc)?.setOnClickListener { setAsset("bitcoin") }
 
         findViewById<Button>(R.id.btn1D)?.setOnClickListener { setDays(1) }
@@ -162,8 +162,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val obj = JSONObject(json)
             val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            val gold = obj.getJSONObject("tether-gold").getDouble("eur") * 32.1507
-            val silver = obj.getJSONObject("kinesis-silver").getDouble("eur") * 32.1507
+            val gold = obj.getJSONObject("gold").getDouble("eur") * 32.1507
+            val silver = obj.getJSONObject("silver").getDouble("eur") * 32.1507
             tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
             tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
             tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity() {
                 dates.add(sdf.format(Date(pt.getLong(0))))
             }
             val colorHex = when(activeAsset) {
-                "tether-gold" -> "#FFD700"; "kinesis-silver" -> "#C0C0C0"; else -> "#F7931A"
+                "gold" -> "#FFD700"; "silver" -> "#C0C0C0"; else -> "#F7931A"
             }
             val dataSet = LineDataSet(entries, "").apply {
                 color = Color.parseColor(colorHex); setDrawCircles(false); setDrawValues(false)
