@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
     private val apiBaseUrl = "https://api.coingecko.com/api/v3"
     private val priceIds = "bitcoin,tether-gold,kinesis-silver"
+    private val troyOuncesPerKilogram = 32.1507466
     private val refreshIntervalSeconds = 80
 
     private var activeAsset = "bitcoin"
@@ -235,13 +236,13 @@ class MainActivity : AppCompatActivity() {
     private fun parseAndSetPrices(json: String) {
         val obj = JSONObject(json)
         val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-        val gold = obj.getJSONObject("tether-gold").getDouble("eur")
-        val silver = obj.getJSONObject("kinesis-silver").getDouble("eur")
+        val gold = ouncePriceToKilogram(obj.getJSONObject("tether-gold").getDouble("eur"))
+        val silver = ouncePriceToKilogram(obj.getJSONObject("kinesis-silver").getDouble("eur"))
 
         runOnUiThread {
-            tvBitcoinPrice?.text = formatPrice(btc)
-            tvGoldPrice?.text = formatPrice(gold)
-            tvSilverPrice?.text = formatPrice(silver)
+            tvBitcoinPrice?.text = formatPrice("bitcoin", btc)
+            tvGoldPrice?.text = formatPrice("gold", gold)
+            tvSilverPrice?.text = formatPrice("silver", silver)
         }
     }
 
@@ -278,7 +279,7 @@ class MainActivity : AppCompatActivity() {
 
         for (i in 0 until prices.length()) {
             val point = prices.getJSONArray(i)
-            entries.add(Entry(i.toFloat(), point.getDouble(1).toFloat()))
+            entries.add(Entry(i.toFloat(), displayPriceFor(asset, point.getDouble(1)).toFloat()))
             dates.add(sdf.format(Date(point.getLong(0))))
         }
 
@@ -299,7 +300,7 @@ class MainActivity : AppCompatActivity() {
                 return if (index >= 0 && index < dates.size) dates[index] else ""
             }
         }
-        chart?.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y)
+        chart?.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
         chart?.data = LineData(dataSet)
         chart?.invalidate()
     }
@@ -322,11 +323,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun chartKey(asset: String, selectedDays: Int): String = "chart_${asset}_$selectedDays"
 
-    private fun formatPrice(value: Double): String {
+    private fun displayPriceFor(asset: String, value: Double): Double {
+        return when (asset) {
+            "gold", "silver" -> ouncePriceToKilogram(value)
+            else -> value
+        }
+    }
+
+    private fun ouncePriceToKilogram(value: Double): Double = value * troyOuncesPerKilogram
+
+    private fun unitSuffixFor(asset: String): String {
+        return when (asset) {
+            "gold", "silver" -> "/kg"
+            else -> ""
+        }
+    }
+
+    private fun formatPrice(asset: String, value: Double): String {
+        val suffix = unitSuffixFor(asset)
         return if (value >= 1000) {
-            String.format(Locale.GERMAN, "EUR %,.0f", value)
+            String.format(Locale.GERMAN, "EUR %,.0f%s", value, suffix)
         } else {
-            String.format(Locale.GERMAN, "EUR %,.2f", value)
+            String.format(Locale.GERMAN, "EUR %,.2f%s", value, suffix)
         }
     }
 
