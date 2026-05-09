@@ -21,6 +21,7 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -39,7 +40,9 @@ class MainActivity : AppCompatActivity() {
     private val proxyBaseUrl =
         "https://script.google.com/macros/s/AKfycbzhen0cxlYd3neWueBzzqQAQRFEO5dyKrCv7-enW0mG6ZMCxvbCStZmtpiPcRySltON/exec"
     private val coinbaseBtcUrl = "https://api.coinbase.com/v2/prices/BTC-EUR/spot"
+    private val coinbaseExchangeBaseUrl = "https://api.exchange.coinbase.com"
     private val stooqQuoteBaseUrl = "https://stooq.com/q/l/"
+    private val yahooChartBaseUrl = "https://query1.finance.yahoo.com/v8/finance/chart"
     private val troyOuncesPerKilogram = 32.1507466
     private val lastPricesKey = "last_prices_proxy_v1"
     private val refreshIntervalSeconds = 80
@@ -254,12 +257,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    if (asset == activeAsset && selectedDays == days) showFallbackChart(asset, selectedDays)
+                    if (asset == activeAsset && selectedDays == days) fetchFallbackChart(asset, selectedDays)
                 }
             }
 
             override fun onError(message: String) {
-                if (asset == activeAsset && selectedDays == days) showFallbackChart(asset, selectedDays)
+                if (asset == activeAsset && selectedDays == days) fetchFallbackChart(asset, selectedDays)
             }
         })
     }
@@ -411,12 +414,106 @@ class MainActivity : AppCompatActivity() {
         chart?.invalidate()
     }
 
-    private fun showFallbackChart(asset: String, selectedDays: Int) {
+    private fun fetchFallbackChart(asset: String, selectedDays: Int) {
+        if (asset == "bitcoin") {
+            fetchFallbackBitcoinChart(selectedDays)
+        } else {
+            fetchFallbackMetalChart(asset, selectedDays)
+        }
+    }
+
+    private fun fetchFallbackBitcoinChart(selectedDays: Int) {
+        val url = "$coinbaseExchangeBaseUrl/products/BTC-EUR/candles?granularity=${coinbaseGranularity(selectedDays)}"
+        getText(url, object : TextCallback {
+            override fun onSuccess(text: String) {
+                try {
+                    val chartJson = coinbaseCandlesToChartJson("bitcoin", selectedDays, text)
+                    prefs.edit().putString(chartKey("bitcoin", selectedDays), chartJson).apply()
+                    if (isCurrentChart("bitcoin", selectedDays)) {
+                        runOnUiThread { showChartFromJson("bitcoin", selectedDays, chartJson) }
+                    }
+                    setStatus("Reserve-Chart aktualisiert")
+                } catch (e: Exception) {
+                    if (isCurrentChart("bitcoin", selectedDays)) showFlatFallbackChart("bitcoin", selectedDays)
+                }
+            }
+
+            override fun onError(message: String) {
+                if (isCurrentChart("bitcoin", selectedDays)) showFlatFallbackChart("bitcoin", selectedDays)
+            }
+        })
+    }
+
+    private fun fetchFallbackMetalChart(asset: String, selectedDays: Int) {
+        val metalSymbol = if (asset == "gold") "GC%3DF" else "SI%3DF"
+        val range = yahooRange(selectedDays)
+        val interval = yahooInterval(selectedDays)
+        val metalUrl = "$yahooChartBaseUrl/$metalSymbol?range=$range&interval=$interval"
+        val fxUrl = "$yahooChartBaseUrl/EURUSD%3DX?range=$range&interval=$interval"
+
+        val lock = Any()
+        var metalJson: String? = null
+        var fxJson: String? = null
+        var failures = 0
+
+        fun finishIfReady() {
+            synchronized(lock) {
+                if (failures > 0) {
+                    if (isCurrentChart(asset, selectedDays)) showFlatFallbackChart(asset, selectedDays)
+                    return
+                }
+
+                val metal = metalJson
+                val fx = fxJson
+                if (metal != null && fx != null) {
+                    try {
+                        val chartJson = yahooMetalChartToChartJson(asset, selectedDays, metal, fx)
+                        prefs.edit().putString(chartKey(asset, selectedDays), chartJson).apply()
+                        if (isCurrentChart(asset, selectedDays)) {
+                            runOnUiThread { showChartFromJson(asset, selectedDays, chartJson) }
+                        }
+                        setStatus("Reserve-Chart aktualisiert")
+                    } catch (e: Exception) {
+                        if (isCurrentChart(asset, selectedDays)) showFlatFallbackChart(asset, selectedDays)
+                    }
+                }
+            }
+        }
+
+        getJson(metalUrl, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                synchronized(lock) { metalJson = json }
+                finishIfReady()
+            }
+
+            override fun onError(message: String) {
+                synchronized(lock) { failures++ }
+                finishIfReady()
+            }
+        })
+        getJson(fxUrl, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                synchronized(lock) { fxJson = json }
+                finishIfReady()
+            }
+
+            override fun onError(message: String) {
+                synchronized(lock) { failures++ }
+                finishIfReady()
+            }
+        })
+    }
+
+    private fun showFlatFallbackChart(asset: String, selectedDays: Int) {
+        if (!isCurrentChart(asset, selectedDays)) return
+
         val price = latestCachedPrice(asset)
         if (price == null) {
-            chart?.clear()
-            chart?.setNoDataText("Warten auf Daten...")
-            chart?.invalidate()
+            runOnUiThread {
+                chart?.clear()
+                chart?.setNoDataText("Warten auf Daten...")
+                chart?.invalidate()
+            }
             setStatus("Server wartet auf Daten")
             return
         }
@@ -448,16 +545,138 @@ class MainActivity : AppCompatActivity() {
             fillAlpha = 35
         }
 
-        chart?.xAxis?.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float): String {
-                val index = value.toInt()
-                return if (index >= 0 && index < dates.size) dates[index] else ""
+        runOnUiThread {
+            chart?.xAxis?.valueFormatter = object : ValueFormatter() {
+                override fun getFormattedValue(value: Float): String {
+                    val index = value.toInt()
+                    return if (index >= 0 && index < dates.size) dates[index] else ""
+                }
+            }
+            chart?.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
+            chart?.data = LineData(dataSet)
+            chart?.invalidate()
+        }
+        setStatus("Reserve-Chart angezeigt")
+    }
+
+    private fun isCurrentChart(asset: String, selectedDays: Int): Boolean {
+        return asset == activeAsset && selectedDays == days
+    }
+
+    private fun coinbaseGranularity(selectedDays: Int): Int {
+        return when (selectedDays) {
+            1 -> 300
+            7 -> 3600
+            30 -> 21600
+            else -> 86400
+        }
+    }
+
+    private fun yahooRange(selectedDays: Int): String {
+        return when (selectedDays) {
+            1 -> "1d"
+            7 -> "5d"
+            30 -> "1mo"
+            365 -> "1y"
+            else -> "5y"
+        }
+    }
+
+    private fun yahooInterval(selectedDays: Int): String {
+        return when (selectedDays) {
+            1 -> "5m"
+            7 -> "1h"
+            else -> "1d"
+        }
+    }
+
+    private fun coinbaseCandlesToChartJson(asset: String, selectedDays: Int, json: String): String {
+        val candles = JSONArray(json)
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val points = ArrayList<Pair<Long, Double>>()
+
+        for (i in 0 until candles.length()) {
+            val candle = candles.getJSONArray(i)
+            val timeMs = candle.getLong(0) * 1000L
+            if (timeMs >= cutoff) {
+                points.add(timeMs to candle.getDouble(4))
             }
         }
-        chart?.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
-        chart?.data = LineData(dataSet)
-        chart?.invalidate()
-        setStatus("Reserve-Chart angezeigt")
+
+        points.sortBy { it.first }
+        if (points.size < 2) throw IllegalArgumentException("Too few fallback points")
+        return chartJson(asset, selectedDays, "EUR", points)
+    }
+
+    private fun yahooMetalChartToChartJson(asset: String, selectedDays: Int, metalJson: String, fxJson: String): String {
+        val metalPoints = yahooClosePoints(metalJson)
+        val fxPoints = yahooClosePoints(fxJson)
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val points = ArrayList<Pair<Long, Double>>()
+
+        metalPoints.forEach { point ->
+            if (point.first >= cutoff) {
+                val eurUsd = nearestValue(fxPoints, point.first)
+                if (eurUsd != null && eurUsd > 0.0) {
+                    points.add(point.first to (point.second / eurUsd * troyOuncesPerKilogram))
+                }
+            }
+        }
+
+        if (points.size < 2) throw IllegalArgumentException("Too few fallback points")
+        return chartJson(asset, selectedDays, "EUR/kg", points)
+    }
+
+    private fun yahooClosePoints(json: String): List<Pair<Long, Double>> {
+        val result = JSONObject(json)
+            .getJSONObject("chart")
+            .getJSONArray("result")
+            .getJSONObject(0)
+        val timestamps = result.getJSONArray("timestamp")
+        val closes = result
+            .getJSONObject("indicators")
+            .getJSONArray("quote")
+            .getJSONObject(0)
+            .getJSONArray("close")
+        val points = ArrayList<Pair<Long, Double>>()
+
+        for (i in 0 until timestamps.length()) {
+            if (!closes.isNull(i)) {
+                points.add(timestamps.getLong(i) * 1000L to closes.getDouble(i))
+            }
+        }
+
+        return points.sortedBy { it.first }
+    }
+
+    private fun nearestValue(points: List<Pair<Long, Double>>, timeMs: Long): Double? {
+        var best: Double? = null
+
+        for (point in points) {
+            if (point.first <= timeMs) {
+                best = point.second
+            } else {
+                break
+            }
+        }
+
+        return best ?: points.firstOrNull()?.second
+    }
+
+    private fun chartJson(asset: String, selectedDays: Int, unit: String, points: List<Pair<Long, Double>>): String {
+        val prices = JSONArray()
+        points.forEach { point ->
+            prices.put(JSONArray().put(point.first).put(point.second))
+        }
+
+        return JSONObject()
+            .put("ok", true)
+            .put("asset", asset)
+            .put("days", selectedDays)
+            .put("unit", unit)
+            .put("cache", "android_chart_fallback")
+            .put("prices", prices)
+            .toString()
     }
 
     private fun colorFor(asset: String): String {
