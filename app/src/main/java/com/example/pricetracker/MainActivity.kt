@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     private val priceIds = "bitcoin,tether-gold,kinesis-silver"
     private val troyOuncesPerKilogram = 32.1507466
     private val refreshIntervalSeconds = 80
+    private val oneYearCacheAgeMillis = TimeUnit.DAYS.toMillis(183)
+    private val threeYearCacheAgeMillis = TimeUnit.DAYS.toMillis(730)
 
     private var activeAsset = "bitcoin"
     private var days = 1
@@ -154,6 +156,9 @@ class MainActivity : AppCompatActivity() {
                 try {
                     parseAndSetPrices(json)
                     prefs.edit().putString("last_prices", json).apply()
+                    if (canUseLongChartCache(activeAsset, days)) {
+                        runOnUiThread { showChartFromCache(activeAsset, days) }
+                    }
                     setStatus("Daten aktualisiert")
                 } catch (e: Exception) {
                     setStatus("Preisformat unerwartet")
@@ -167,6 +172,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchChartData(asset: String, selectedDays: Int) {
+        if (canUseLongChartCache(asset, selectedDays)) {
+            if (asset == activeAsset && selectedDays == days) {
+                setStatus("Chart aus Speicher geladen")
+            }
+            return
+        }
+
         val coinId = coinIdFor(asset)
         val url = "$apiBaseUrl/coins/$coinId/market_chart?vs_currency=eur&days=$selectedDays"
         getJson(url, object : JsonCallback {
@@ -175,7 +187,10 @@ class MainActivity : AppCompatActivity() {
                     val prices = JSONObject(json).getJSONArray("prices")
                     if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
 
-                    prefs.edit().putString(chartKey(asset, selectedDays), json).apply()
+                    prefs.edit()
+                        .putString(chartKey(asset, selectedDays), json)
+                        .putLong(chartUpdatedKey(asset, selectedDays), System.currentTimeMillis())
+                        .apply()
                     if (asset == activeAsset && selectedDays == days) {
                         runOnUiThread {
                             showChartFromJson(asset, selectedDays, json)
@@ -283,6 +298,8 @@ class MainActivity : AppCompatActivity() {
             dates.add(sdf.format(Date(point.getLong(0))))
         }
 
+        appendLivePoint(asset, entries, dates, sdf, prices.getJSONArray(prices.length() - 1).getLong(0))
+
         val colorHex = colorFor(asset)
         val dataSet = LineDataSet(entries, "").apply {
             color = Color.parseColor(colorHex)
@@ -322,6 +339,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun chartKey(asset: String, selectedDays: Int): String = "chart_${asset}_$selectedDays"
+
+    private fun chartUpdatedKey(asset: String, selectedDays: Int): String = "chart_${asset}_${selectedDays}_updated_at"
+
+    private fun canUseLongChartCache(asset: String, selectedDays: Int): Boolean {
+        val maxAge = when (selectedDays) {
+            365 -> oneYearCacheAgeMillis
+            1095 -> threeYearCacheAgeMillis
+            else -> return false
+        }
+        val saved = prefs.getString(chartKey(asset, selectedDays), "")
+        if (saved.isNullOrEmpty()) return false
+
+        val updatedAt = prefs.getLong(chartUpdatedKey(asset, selectedDays), 0L)
+        if (updatedAt <= 0L) return false
+
+        return System.currentTimeMillis() - updatedAt <= maxAge
+    }
+
+    private fun appendLivePoint(asset: String, entries: ArrayList<Entry>, dates: ArrayList<String>, sdf: SimpleDateFormat, lastChartTime: Long) {
+        val livePrice = latestDisplayPriceFor(asset) ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastChartTime < TimeUnit.MINUTES.toMillis(30)) return
+
+        entries.add(Entry(entries.size.toFloat(), livePrice.toFloat()))
+        dates.add(sdf.format(Date(now)))
+    }
+
+    private fun latestDisplayPriceFor(asset: String): Double? {
+        val saved = prefs.getString("last_prices", "") ?: return null
+        if (saved.isEmpty()) return null
+
+        return try {
+            val obj = JSONObject(saved)
+            val rawPrice = when (asset) {
+                "gold" -> obj.getJSONObject("tether-gold").getDouble("eur")
+                "silver" -> obj.getJSONObject("kinesis-silver").getDouble("eur")
+                else -> obj.getJSONObject("bitcoin").getDouble("eur")
+            }
+            displayPriceFor(asset, rawPrice)
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     private fun displayPriceFor(asset: String, value: Double): Double {
         return when (asset) {
