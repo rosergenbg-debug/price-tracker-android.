@@ -16,20 +16,33 @@ import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
 import com.github.mikephil.charting.formatter.ValueFormatter
-import okhttp3.*
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
-    private val client = OkHttpClient()
-    private val googleScriptUrl = "https://script.google.com/macros/s/AKfycbzH0t-zQzLuMbZs_mlPMlicir7BZNumgVOMkx7yjsHgN6qLNz17KxFGr9znketNLxjL/exec"
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
+
+    private val apiBaseUrl = "https://api.coingecko.com/api/v3"
+    private val priceIds = "bitcoin,tether-gold,kinesis-silver"
+    private val refreshIntervalSeconds = 80
 
     private var activeAsset = "bitcoin"
     private var days = 1
-    private var timeLeft = 80
+    private var timeLeft = refreshIntervalSeconds
 
     private var chart: LineChart? = null
     private var tvStatus: TextView? = null
@@ -61,8 +74,22 @@ class MainActivity : AppCompatActivity() {
         tvBitcoinPrice = findViewById(R.id.tvBitcoinPrice)
 
         setupChart()
+        setupButtons()
 
-        // Кнопки теперь отправляют ПРОСТЫЕ имена
+        loadPricesFromCache()
+        updateTimeButtons()
+        setAsset("bitcoin")
+        handler.post(timerRunnable)
+        refreshAll()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(timerRunnable)
+        client.dispatcher.cancelAll()
+        super.onDestroy()
+    }
+
+    private fun setupButtons() {
         findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("gold") }
         findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("silver") }
         findViewById<LinearLayout>(R.id.layoutBtc)?.setOnClickListener { setAsset("bitcoin") }
@@ -73,12 +100,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1Y)?.setOnClickListener { setDays(365) }
         findViewById<Button>(R.id.btn3Y)?.setOnClickListener { setDays(1095) }
         findViewById<Button>(R.id.btnRefresh)?.setOnClickListener { refreshAll() }
-
-        loadPricesFromCache()
-        updateTimeButtons()
-        setAsset("bitcoin")
-        handler.post(timerRunnable)
-        refreshAll()
     }
 
     private fun setupChart() {
@@ -87,9 +108,10 @@ class MainActivity : AppCompatActivity() {
             legend.isEnabled = false
             xAxis.position = XAxis.XAxisPosition.BOTTOM
             xAxis.textColor = Color.WHITE
+            xAxis.granularity = 1f
             axisLeft.textColor = Color.WHITE
             axisRight.isEnabled = false
-            setNoDataText("Warten на данные...")
+            setNoDataText("Warten auf Daten...")
             setNoDataTextColor(Color.WHITE)
         }
     }
@@ -106,52 +128,94 @@ class MainActivity : AppCompatActivity() {
 
     private fun setAsset(asset: String) {
         activeAsset = asset
-        showChartFromCache()
-        fetchChartData()
+        showChartFromCache(asset, days)
+        fetchChartData(asset, days)
     }
 
-    private fun setDays(d: Int) {
-        days = d
+    private fun setDays(newDays: Int) {
+        days = newDays
         updateTimeButtons()
-        showChartFromCache()
-        fetchChartData()
+        showChartFromCache(activeAsset, days)
+        fetchChartData(activeAsset, days)
     }
 
     private fun refreshAll() {
-        timeLeft = 80
-        tvStatus?.text = "Synchronisierung..."
+        timeLeft = refreshIntervalSeconds
+        setStatus("Synchronisierung...")
         fetchPrices()
-        fetchChartData()
+        fetchChartData(activeAsset, days)
     }
 
     private fun fetchPrices() {
-        val url = "$googleScriptUrl?url=simple/price"
-        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { tvStatus?.text = "Verbindungsfehler" }
-            }
-            override fun onResponse(call: Call, response: Response) {
-                val r = response.body?.string() ?: ""
-                if (response.isSuccessful && r.contains("bitcoin")) {
-                    prefs.edit().putString("last_prices", r).apply()
-                    runOnUiThread { parseAndSetPrices(r); tvStatus?.text = "Все данные актуальны" }
+        val url = "$apiBaseUrl/simple/price?ids=$priceIds&vs_currencies=eur"
+        getJson(url, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                try {
+                    parseAndSetPrices(json)
+                    prefs.edit().putString("last_prices", json).apply()
+                    setStatus("Daten aktualisiert")
+                } catch (e: Exception) {
+                    setStatus("Preisformat unerwartet")
                 }
+            }
+
+            override fun onError(message: String) {
+                setStatus(message)
             }
         })
     }
 
-    private fun fetchChartData() {
-        val url = "$googleScriptUrl?url=market_chart&asset=$activeAsset&days=$days"
-        client.newCall(Request.Builder().url(url).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
+    private fun fetchChartData(asset: String, selectedDays: Int) {
+        val coinId = coinIdFor(asset)
+        val url = "$apiBaseUrl/coins/$coinId/market_chart?vs_currency=eur&days=$selectedDays"
+        getJson(url, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                try {
+                    val prices = JSONObject(json).getJSONArray("prices")
+                    if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
+
+                    prefs.edit().putString(chartKey(asset, selectedDays), json).apply()
+                    if (asset == activeAsset && selectedDays == days) {
+                        runOnUiThread {
+                            showChartFromJson(asset, selectedDays, json)
+                            setStatus("Daten aktualisiert")
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (asset == activeAsset && selectedDays == days) setStatus("Chartformat unerwartet")
+                }
+            }
+
+            override fun onError(message: String) {
+                if (asset == activeAsset && selectedDays == days) setStatus(message)
+            }
+        })
+    }
+
+    private fun getJson(url: String, callback: JsonCallback) {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "PriceTrackerAndroid/1.0")
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback.onError("Verbindungsfehler")
+            }
+
             override fun onResponse(call: Call, response: Response) {
-                val r = response.body?.string() ?: ""
-                // Если пришла ошибка или пустой график - не портим кэш!
-                if (response.isSuccessful && r.contains("prices") && !r.contains("[[") ) {
-                     // Пропускаем пустые ответы
-                } else if (response.isSuccessful && r.contains("prices")) {
-                    prefs.edit().putString("chart_${activeAsset}_$days", r).apply()
-                    runOnUiThread { showChartFromCache() }
+                response.use {
+                    val body = it.body?.string().orEmpty()
+                    if (!it.isSuccessful) {
+                        callback.onError("API Fehler ${it.code}")
+                        return
+                    }
+                    if (!body.trimStart().startsWith("{")) {
+                        callback.onError("Keine JSON Antwort")
+                        return
+                    }
+                    callback.onSuccess(body)
                 }
             }
         })
@@ -159,73 +223,119 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadPricesFromCache() {
         val saved = prefs.getString("last_prices", "")
-        if (!saved.isNullOrEmpty()) parseAndSetPrices(saved)
+        if (!saved.isNullOrEmpty()) {
+            try {
+                parseAndSetPrices(saved)
+            } catch (e: Exception) {
+                prefs.edit().remove("last_prices").apply()
+            }
+        }
     }
 
     private fun parseAndSetPrices(json: String) {
-        try {
-            val obj = JSONObject(json)
-            val btc = obj.getJSONObject("bitcoin").getDouble("eur")
-            
-            // Умный поиск: понимаем и старые, и новые имена от сервера
-            val gKey = if (obj.has("tether-gold")) "tether-gold" else "gold"
-            val sKey = if (obj.has("kinesis-silver")) "kinesis-silver" else "silver"
-            
-            val gold = obj.getJSONObject(gKey).getDouble("eur") * 32.1507
-            val silver = obj.getJSONObject(sKey).getDouble("eur") * 32.1507
-            
-            tvBitcoinPrice?.text = String.format(Locale.GERMAN, "€%,.0f", btc)
-            tvGoldPrice?.text = String.format(Locale.GERMAN, "€%,.0f", gold)
-            tvSilverPrice?.text = String.format(Locale.GERMAN, "€%,.0f", silver)
-        } catch (e: Exception) {}
+        val obj = JSONObject(json)
+        val btc = obj.getJSONObject("bitcoin").getDouble("eur")
+        val gold = obj.getJSONObject("tether-gold").getDouble("eur")
+        val silver = obj.getJSONObject("kinesis-silver").getDouble("eur")
+
+        runOnUiThread {
+            tvBitcoinPrice?.text = formatPrice(btc)
+            tvGoldPrice?.text = formatPrice(gold)
+            tvSilverPrice?.text = formatPrice(silver)
+        }
     }
 
-    private fun showChartFromCache() {
-        var saved = prefs.getString("chart_${activeAsset}_$days", "")
-        // Если для нового имени нет данных - пробуем найти по старому
-        if (saved.isNullOrEmpty() && activeAsset == "gold") saved = prefs.getString("chart_tether-gold_$days", "")
-        if (saved.isNullOrEmpty() && activeAsset == "silver") saved = prefs.getString("chart_kinesis-silver_$days", "")
-        
+    private fun showChartFromCache(asset: String, selectedDays: Int) {
+        val saved = prefs.getString(chartKey(asset, selectedDays), "")
         if (saved.isNullOrEmpty()) {
-            chart?.clear(); chart?.setNoDataText("Warten..."); chart?.invalidate()
+            chart?.clear()
+            chart?.setNoDataText("Warten auf Daten...")
+            chart?.invalidate()
             return
         }
-        try {
-            val prices = JSONObject(saved).getJSONArray("prices")
-            if (prices.length() < 2) return // Не рисуем графики из 1 точки
 
-            val entries = ArrayList<Entry>(); val dates = ArrayList<String>()
-            val sdf = when(days) {
-                1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
-                7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
-                else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
+        try {
+            showChartFromJson(asset, selectedDays, saved)
+        } catch (e: Exception) {
+            prefs.edit().remove(chartKey(asset, selectedDays)).apply()
+            chart?.clear()
+            chart?.setNoDataText("Keine gueltigen Daten")
+            chart?.invalidate()
+        }
+    }
+
+    private fun showChartFromJson(asset: String, selectedDays: Int, json: String) {
+        val prices = JSONObject(json).getJSONArray("prices")
+        if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
+
+        val entries = ArrayList<Entry>()
+        val dates = ArrayList<String>()
+        val sdf = when (selectedDays) {
+            1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
+            7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
+            else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
+        }
+
+        for (i in 0 until prices.length()) {
+            val point = prices.getJSONArray(i)
+            entries.add(Entry(i.toFloat(), point.getDouble(1).toFloat()))
+            dates.add(sdf.format(Date(point.getLong(0))))
+        }
+
+        val colorHex = colorFor(asset)
+        val dataSet = LineDataSet(entries, "").apply {
+            color = Color.parseColor(colorHex)
+            setDrawCircles(false)
+            setDrawValues(false)
+            lineWidth = 2.2f
+            setDrawFilled(true)
+            fillColor = Color.parseColor(colorHex)
+            fillAlpha = 35
+        }
+
+        chart?.xAxis?.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float): String {
+                val index = value.toInt()
+                return if (index >= 0 && index < dates.size) dates[index] else ""
             }
-            val mult = if (activeAsset == "bitcoin") 1.0 else 32.1507
-            for (i in 0 until prices.length()) {
-                val pt = prices.getJSONArray(i)
-                entries.add(Entry(i.toFloat(), (pt.getDouble(1) * mult).toFloat()))
-                dates.add(sdf.format(Date(pt.getLong(0))))
-            }
-            
-            val colorHex = when {
-                activeAsset.contains("gold") -> "#FFD700"
-                activeAsset.contains("silver") -> "#C0C0C0"
-                else -> "#F7931A"
-            }
-            
-            val dataSet = LineDataSet(entries, "").apply {
-                color = Color.parseColor(colorHex); setDrawCircles(false); setDrawValues(false)
-                lineWidth = 2.0f; setDrawFilled(true); fillColor = Color.parseColor(colorHex); fillAlpha = 30
-            }
-            chart?.xAxis?.valueFormatter = object : ValueFormatter() {
-                override fun getFormattedValue(v: Float): String {
-                    val idx = v.toInt(); return if (idx >= 0 && idx < dates.size) dates[idx] else ""
-                }
-            }
-            if (entries.isNotEmpty()) {
-                chart?.marker = CustomMarkerView(this@MainActivity, R.layout.marker_view, entries.last().y)
-            }
-            chart?.data = LineData(dataSet); chart?.invalidate()
-        } catch (e: Exception) {}
+        }
+        chart?.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y)
+        chart?.data = LineData(dataSet)
+        chart?.invalidate()
+    }
+
+    private fun coinIdFor(asset: String): String {
+        return when (asset) {
+            "gold" -> "tether-gold"
+            "silver" -> "kinesis-silver"
+            else -> "bitcoin"
+        }
+    }
+
+    private fun colorFor(asset: String): String {
+        return when (asset) {
+            "gold" -> "#FFD700"
+            "silver" -> "#C0C0C0"
+            else -> "#F7931A"
+        }
+    }
+
+    private fun chartKey(asset: String, selectedDays: Int): String = "chart_${asset}_$selectedDays"
+
+    private fun formatPrice(value: Double): String {
+        return if (value >= 1000) {
+            String.format(Locale.GERMAN, "EUR %,.0f", value)
+        } else {
+            String.format(Locale.GERMAN, "EUR %,.2f", value)
+        }
+    }
+
+    private fun setStatus(message: String) {
+        runOnUiThread { tvStatus?.text = message }
+    }
+
+    private interface JsonCallback {
+        fun onSuccess(json: String)
+        fun onError(message: String)
     }
 }

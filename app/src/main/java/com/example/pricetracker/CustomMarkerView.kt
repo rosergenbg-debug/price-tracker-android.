@@ -7,14 +7,14 @@ import com.github.mikephil.charting.highlight.Highlight
 import com.github.mikephil.charting.utils.MPPointF
 import java.util.Locale
 
-class CustomMarkerView(context: Context, layoutResource: Int, private val lastPrice: Float) : MarkerView(context, layoutResource) {
+class CustomMarkerView(context: Context, layoutResource: Int, private val basePrice: Float) : MarkerView(context, layoutResource) {
     private val tvContent: TextView? = findViewById(R.id.tvContent)
     override fun refreshContent(e: Entry?, highlight: Highlight?) {
-        if (e != null && lastPrice > 0f) {
+        if (e != null && basePrice > 0f) {
             val value = e.y
-            val percent = ((value - lastPrice) / lastPrice) * 100
+            val percent = ((value - basePrice) / basePrice) * 100
             val sign = if (percent > 0) "+" else ""
-            tvContent?.text = String.format(Locale.GERMAN, "€%,.0f\n%s%.2f%%", value, sign, percent)
+            tvContent?.text = String.format(Locale.GERMAN, "EUR %,.2f\n%s%.2f%%", value, sign, percent)
         }
         super.refreshContent(e, highlight)
     }

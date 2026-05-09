@@ -4,15 +4,15 @@
     <LinearLayout android:id="@+id/header" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="10dp" android:gravity="center">
         <LinearLayout android:id="@+id/layoutGold" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/gold"/>
-            <TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="€0" android:textColor="#FFD700" android:textSize="18sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EUR 0" android:textColor="#FFD700" android:textSize="18sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:id="@+id/layoutSilver" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/silver"/>
-            <TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="€0" android:textColor="#C0C0C0" android:textSize="18sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EUR 0" android:textColor="#C0C0C0" android:textSize="18sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:id="@+id/layoutBtc" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/bitcoin"/>
-            <TextView android:id="@+id/tvBitcoinPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="€0" android:textColor="#F7931A" android:textSize="18sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/tvBitcoinPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EUR 0" android:textColor="#F7931A" android:textSize="18sp" android:textStyle="bold"/>
         </LinearLayout>
     </LinearLayout>
     <TextView android:id="@+id/tvTimer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_below="@id/header" android:layout_alignParentEnd="true" android:layout_marginEnd="10dp" android:text="Aktualisierung: 80s" android:textColor="#AB47BC" android:textSize="12sp"/>
