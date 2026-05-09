@@ -40,7 +40,6 @@ class MainActivity : AppCompatActivity() {
     private val proxyBaseUrl =
         "https://script.google.com/macros/s/AKfycbzhen0cxlYd3neWueBzzqQAQRFEO5dyKrCv7-enW0mG6ZMCxvbCStZmtpiPcRySltON/exec"
     private val coinbaseBtcUrl = "https://api.coinbase.com/v2/prices/BTC-EUR/spot"
-    private val coinbaseExchangeBaseUrl = "https://api.exchange.coinbase.com"
     private val stooqQuoteBaseUrl = "https://stooq.com/q/l/"
     private val yahooChartBaseUrl = "https://query1.finance.yahoo.com/v8/finance/chart"
     private val troyOuncesPerKilogram = 32.1507466
@@ -88,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         updateTimeButtons()
         setAsset("bitcoin")
         handler.post(timerRunnable)
-        refreshAll()
+        fetchPrices()
     }
 
     override fun onDestroy() {
@@ -107,7 +106,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn1M)?.setOnClickListener { setDays(30) }
         findViewById<Button>(R.id.btn1Y)?.setOnClickListener { setDays(365) }
         findViewById<Button>(R.id.btn3Y)?.setOnClickListener { setDays(1095) }
-        findViewById<Button>(R.id.btnRefresh)?.setOnClickListener { refreshAll() }
+        findViewById<Button>(R.id.btnRefresh)?.setOnClickListener { refreshAll(forceChart = true) }
     }
 
     private fun setupChart() {
@@ -147,14 +146,20 @@ class MainActivity : AppCompatActivity() {
         fetchChartData(activeAsset, days)
     }
 
-    private fun refreshAll() {
+    private fun refreshAll(forceChart: Boolean = false) {
         timeLeft = refreshIntervalSeconds
         setStatus("Synchronisierung...")
         fetchPrices()
-        fetchChartData(activeAsset, days)
+        fetchChartData(activeAsset, days, forceChart)
     }
 
     private fun fetchPrices() {
+        fetchFallbackPrices { success ->
+            if (!success) fetchProxyPrices()
+        }
+    }
+
+    private fun fetchProxyPrices() {
         val url = "$proxyBaseUrl?action=prices"
         getJson(url, object : JsonCallback {
             override fun onSuccess(json: String) {
@@ -173,7 +178,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun fetchFallbackPrices() {
+    private fun fetchFallbackPrices(onFinished: ((Boolean) -> Unit)? = null) {
         val values = mutableMapOf<String, Double>()
         var finished = 0
 
@@ -199,9 +204,11 @@ class MainActivity : AppCompatActivity() {
 
                         parseAndSetPrices(json)
                         prefs.edit().putString(lastPricesKey, json).apply()
-                        setStatus("Reserve-Daten aktualisiert")
+                        setStatus("Daten aktualisiert")
+                        onFinished?.invoke(true)
                     } else {
                         setStatus("Server wartet auf Daten")
+                        onFinished?.invoke(false)
                     }
                 }
             }
@@ -238,33 +245,13 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun fetchChartData(asset: String, selectedDays: Int) {
-        val url = "$proxyBaseUrl?action=chart&asset=$asset&days=$selectedDays"
-        getJson(url, object : JsonCallback {
-            override fun onSuccess(json: String) {
-                try {
-                    val obj = JSONObject(json)
-                    ensureOk(obj)
+    private fun fetchChartData(asset: String, selectedDays: Int, force: Boolean = false) {
+        if (!force && isChartCacheFresh(asset, selectedDays)) {
+            setStatus("Chart aus Speicher")
+            return
+        }
 
-                    val prices = obj.getJSONArray("prices")
-                    if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
-
-                    prefs.edit().putString(chartKey(asset, selectedDays), json).apply()
-                    if (asset == activeAsset && selectedDays == days) {
-                        runOnUiThread {
-                            showChartFromJson(asset, selectedDays, json)
-                            setStatus("Daten aktualisiert")
-                        }
-                    }
-                } catch (e: Exception) {
-                    if (asset == activeAsset && selectedDays == days) fetchFallbackChart(asset, selectedDays)
-                }
-            }
-
-            override fun onError(message: String) {
-                if (asset == activeAsset && selectedDays == days) fetchFallbackChart(asset, selectedDays)
-            }
-        })
+        fetchFallbackChart(asset, selectedDays)
     }
 
     private fun getJson(url: String, callback: JsonCallback) {
@@ -355,22 +342,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showChartFromCache(asset: String, selectedDays: Int) {
+    private fun showChartFromCache(asset: String, selectedDays: Int): Boolean {
         val saved = prefs.getString(chartKey(asset, selectedDays), "")
         if (saved.isNullOrEmpty()) {
             chart?.clear()
             chart?.setNoDataText("Warten auf Daten...")
             chart?.invalidate()
-            return
+            return false
         }
 
         try {
             showChartFromJson(asset, selectedDays, saved)
+            return true
         } catch (e: Exception) {
             prefs.edit().remove(chartKey(asset, selectedDays)).apply()
             chart?.clear()
             chart?.setNoDataText("Keine gueltigen Daten")
             chart?.invalidate()
+            return false
         }
     }
 
@@ -423,16 +412,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchFallbackBitcoinChart(selectedDays: Int) {
-        val url = "$coinbaseExchangeBaseUrl/products/BTC-EUR/candles?granularity=${coinbaseGranularity(selectedDays)}"
-        getText(url, object : TextCallback {
-            override fun onSuccess(text: String) {
+        val url = "$yahooChartBaseUrl/BTC-EUR?range=${yahooRange(selectedDays)}&interval=${yahooInterval(selectedDays)}"
+        getJson(url, object : JsonCallback {
+            override fun onSuccess(json: String) {
                 try {
-                    val chartJson = coinbaseCandlesToChartJson("bitcoin", selectedDays, text)
-                    prefs.edit().putString(chartKey("bitcoin", selectedDays), chartJson).apply()
+                    val chartJson = yahooBitcoinChartToChartJson(selectedDays, json)
+                    cacheChartJson("bitcoin", selectedDays, chartJson)
                     if (isCurrentChart("bitcoin", selectedDays)) {
                         runOnUiThread { showChartFromJson("bitcoin", selectedDays, chartJson) }
                     }
-                    setStatus("Reserve-Chart aktualisiert")
+                    setStatus("Chart aktualisiert")
                 } catch (e: Exception) {
                     if (isCurrentChart("bitcoin", selectedDays)) showFlatFallbackChart("bitcoin", selectedDays)
                 }
@@ -468,11 +457,11 @@ class MainActivity : AppCompatActivity() {
                 if (metal != null && fx != null) {
                     try {
                         val chartJson = yahooMetalChartToChartJson(asset, selectedDays, metal, fx)
-                        prefs.edit().putString(chartKey(asset, selectedDays), chartJson).apply()
+                        cacheChartJson(asset, selectedDays, chartJson)
                         if (isCurrentChart(asset, selectedDays)) {
                             runOnUiThread { showChartFromJson(asset, selectedDays, chartJson) }
                         }
-                        setStatus("Reserve-Chart aktualisiert")
+                        setStatus("Chart aktualisiert")
                     } catch (e: Exception) {
                         if (isCurrentChart(asset, selectedDays)) showFlatFallbackChart(asset, selectedDays)
                     }
@@ -563,19 +552,10 @@ class MainActivity : AppCompatActivity() {
         return asset == activeAsset && selectedDays == days
     }
 
-    private fun coinbaseGranularity(selectedDays: Int): Int {
-        return when (selectedDays) {
-            1 -> 300
-            7 -> 3600
-            30 -> 21600
-            else -> 86400
-        }
-    }
-
     private fun yahooRange(selectedDays: Int): String {
         return when (selectedDays) {
             1 -> "1d"
-            7 -> "5d"
+            7 -> "1mo"
             30 -> "1mo"
             365 -> "1y"
             else -> "5y"
@@ -590,22 +570,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun coinbaseCandlesToChartJson(asset: String, selectedDays: Int, json: String): String {
-        val candles = JSONArray(json)
+    private fun yahooBitcoinChartToChartJson(selectedDays: Int, json: String): String {
+        val sourcePoints = yahooClosePoints(json)
         val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
         val points = ArrayList<Pair<Long, Double>>()
 
-        for (i in 0 until candles.length()) {
-            val candle = candles.getJSONArray(i)
-            val timeMs = candle.getLong(0) * 1000L
-            if (timeMs >= cutoff) {
-                points.add(timeMs to candle.getDouble(4))
-            }
+        sourcePoints.forEach { point ->
+            if (point.first >= cutoff) points.add(point)
         }
 
-        points.sortBy { it.first }
         if (points.size < 2) throw IllegalArgumentException("Too few fallback points")
-        return chartJson(asset, selectedDays, "EUR", points)
+        return chartJson("bitcoin", selectedDays, "EUR", points)
     }
 
     private fun yahooMetalChartToChartJson(asset: String, selectedDays: Int, metalJson: String, fxJson: String): String {
@@ -688,6 +663,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun chartKey(asset: String, selectedDays: Int): String = "chart_proxy_${asset}_$selectedDays"
+
+    private fun chartFetchedAtKey(asset: String, selectedDays: Int): String = "${chartKey(asset, selectedDays)}_fetched_at"
+
+    private fun cacheChartJson(asset: String, selectedDays: Int, json: String) {
+        prefs.edit()
+            .putString(chartKey(asset, selectedDays), json)
+            .putLong(chartFetchedAtKey(asset, selectedDays), System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun isChartCacheFresh(asset: String, selectedDays: Int): Boolean {
+        val saved = prefs.getString(chartKey(asset, selectedDays), "")
+        if (saved.isNullOrEmpty()) return false
+
+        val fetchedAt = prefs.getLong(chartFetchedAtKey(asset, selectedDays), 0L)
+        if (fetchedAt <= 0L) return false
+
+        return System.currentTimeMillis() - fetchedAt <= chartCacheMaxAgeMs(selectedDays)
+    }
+
+    private fun chartCacheMaxAgeMs(selectedDays: Int): Long {
+        return when (selectedDays) {
+            1 -> TimeUnit.MINUTES.toMillis(5)
+            7 -> TimeUnit.HOURS.toMillis(6)
+            30 -> TimeUnit.HOURS.toMillis(12)
+            365 -> TimeUnit.DAYS.toMillis(180)
+            else -> TimeUnit.DAYS.toMillis(730)
+        }
+    }
 
     private fun metalKgPrice(obj: JSONObject): Double {
         if (obj.has("eurPerKg")) return obj.getDouble("eurPerKg")
