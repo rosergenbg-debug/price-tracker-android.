@@ -38,8 +38,12 @@ class MainActivity : AppCompatActivity() {
 
     private val proxyBaseUrl =
         "https://script.google.com/macros/s/AKfycbzhen0cxlYd3neWueBzzqQAQRFEO5dyKrCv7-enW0mG6ZMCxvbCStZmtpiPcRySltON/exec"
+    private val coinbaseBtcUrl = "https://api.coinbase.com/v2/prices/BTC-EUR/spot"
+    private val stooqQuoteBaseUrl = "https://stooq.com/q/l/"
+    private val troyOuncesPerKilogram = 32.1507466
     private val lastPricesKey = "last_prices_proxy_v1"
     private val refreshIntervalSeconds = 80
+    private val fallbackPriceLock = Any()
 
     private var activeAsset = "bitcoin"
     private var days = 1
@@ -156,12 +160,77 @@ class MainActivity : AppCompatActivity() {
                     prefs.edit().putString(lastPricesKey, json).apply()
                     setStatus("Daten aktualisiert")
                 } catch (e: Exception) {
-                    setStatus("Preisformat unerwartet")
+                    fetchFallbackPrices()
                 }
             }
 
             override fun onError(message: String) {
-                setStatus(message)
+                fetchFallbackPrices()
+            }
+        })
+    }
+
+    private fun fetchFallbackPrices() {
+        val values = mutableMapOf<String, Double>()
+        var finished = 0
+
+        fun remember(key: String, value: Double?) {
+            synchronized(fallbackPriceLock) {
+                if (value != null) values[key] = value
+                finished++
+
+                if (finished == 4) {
+                    val btc = values["btc"]
+                    val xauUsd = values["xauusd"]
+                    val xagUsd = values["xagusd"]
+                    val eurUsd = values["eurusd"]
+
+                    if (btc != null && xauUsd != null && xagUsd != null && eurUsd != null && eurUsd > 0.0) {
+                        val json = JSONObject()
+                            .put("ok", true)
+                            .put("cache", "android_fallback")
+                            .put("bitcoin", JSONObject().put("eur", btc).put("unit", "EUR"))
+                            .put("gold", JSONObject().put("eur", xauUsd / eurUsd * troyOuncesPerKilogram).put("unit", "EUR/kg"))
+                            .put("silver", JSONObject().put("eur", xagUsd / eurUsd * troyOuncesPerKilogram).put("unit", "EUR/kg"))
+                            .toString()
+
+                        parseAndSetPrices(json)
+                        prefs.edit().putString(lastPricesKey, json).apply()
+                        setStatus("Reserve-Daten aktualisiert")
+                    } else {
+                        setStatus("Server wartet auf Daten")
+                    }
+                }
+            }
+        }
+
+        getJson(coinbaseBtcUrl, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                try {
+                    remember("btc", JSONObject(json).getJSONObject("data").getDouble("amount"))
+                } catch (e: Exception) {
+                    remember("btc", null)
+                }
+            }
+
+            override fun onError(message: String) {
+                remember("btc", null)
+            }
+        })
+        fetchStooqClose("xauusd") { remember("xauusd", it) }
+        fetchStooqClose("xagusd") { remember("xagusd", it) }
+        fetchStooqClose("eurusd") { remember("eurusd", it) }
+    }
+
+    private fun fetchStooqClose(symbol: String, callback: (Double?) -> Unit) {
+        val url = "$stooqQuoteBaseUrl?s=$symbol&f=sd2t2ohlcv&h&e=csv"
+        getText(url, object : TextCallback {
+            override fun onSuccess(text: String) {
+                callback(parseStooqClose(text))
+            }
+
+            override fun onError(message: String) {
+                callback(null)
             }
         })
     }
@@ -185,12 +254,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    if (asset == activeAsset && selectedDays == days) setStatus("Chartformat unerwartet")
+                    if (asset == activeAsset && selectedDays == days) showFallbackChart(asset, selectedDays)
                 }
             }
 
             override fun onError(message: String) {
-                if (asset == activeAsset && selectedDays == days) setStatus(message)
+                if (asset == activeAsset && selectedDays == days) showFallbackChart(asset, selectedDays)
             }
         })
     }
@@ -216,6 +285,31 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (!body.trimStart().startsWith("{")) {
                         callback.onError("Keine JSON Antwort")
+                        return
+                    }
+                    callback.onSuccess(body)
+                }
+            }
+        })
+    }
+
+    private fun getText(url: String, callback: TextCallback) {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "text/plain,text/csv,*/*")
+            .header("User-Agent", "PriceTrackerAndroid/1.0")
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback.onError("Verbindungsfehler")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val body = it.body?.string().orEmpty()
+                    if (!it.isSuccessful) {
+                        callback.onError("API Fehler ${it.code}")
                         return
                     }
                     callback.onSuccess(body)
@@ -317,6 +411,55 @@ class MainActivity : AppCompatActivity() {
         chart?.invalidate()
     }
 
+    private fun showFallbackChart(asset: String, selectedDays: Int) {
+        val price = latestCachedPrice(asset)
+        if (price == null) {
+            chart?.clear()
+            chart?.setNoDataText("Warten auf Daten...")
+            chart?.invalidate()
+            setStatus("Server wartet auf Daten")
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val span = TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val points = ArrayList<Entry>()
+        val dates = ArrayList<String>()
+        val sdf = when (selectedDays) {
+            1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
+            7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
+            else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
+        }
+
+        for (i in 0 until 8) {
+            val time = now - span + (span / 7L * i)
+            points.add(Entry(i.toFloat(), price.toFloat()))
+            dates.add(sdf.format(Date(time)))
+        }
+
+        val colorHex = colorFor(asset)
+        val dataSet = LineDataSet(points, "").apply {
+            color = Color.parseColor(colorHex)
+            setDrawCircles(false)
+            setDrawValues(false)
+            lineWidth = 2.2f
+            setDrawFilled(true)
+            fillColor = Color.parseColor(colorHex)
+            fillAlpha = 35
+        }
+
+        chart?.xAxis?.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float): String {
+                val index = value.toInt()
+                return if (index >= 0 && index < dates.size) dates[index] else ""
+            }
+        }
+        chart?.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
+        chart?.data = LineData(dataSet)
+        chart?.invalidate()
+        setStatus("Reserve-Chart angezeigt")
+    }
+
     private fun colorFor(asset: String): String {
         return when (asset) {
             "gold" -> "#FFD700"
@@ -330,6 +473,32 @@ class MainActivity : AppCompatActivity() {
     private fun metalKgPrice(obj: JSONObject): Double {
         if (obj.has("eurPerKg")) return obj.getDouble("eurPerKg")
         return obj.getDouble("eur")
+    }
+
+    private fun latestCachedPrice(asset: String): Double? {
+        val saved = prefs.getString(lastPricesKey, "") ?: return null
+        if (saved.isEmpty()) return null
+
+        return try {
+            val obj = JSONObject(saved)
+            when (asset) {
+                "gold" -> obj.optJSONObject("gold")?.let { metalKgPrice(it) }
+                "silver" -> obj.optJSONObject("silver")?.let { metalKgPrice(it) }
+                else -> obj.optJSONObject("bitcoin")?.getDouble("eur")
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseStooqClose(csv: String): Double? {
+        val lines = csv.trim().lines()
+        if (lines.size < 2) return null
+
+        val columns = lines[1].split(",")
+        if (columns.size < 7) return null
+
+        return columns[6].toDoubleOrNull()
     }
 
     private fun unitSuffixFor(asset: String): String {
@@ -354,6 +523,11 @@ class MainActivity : AppCompatActivity() {
 
     private interface JsonCallback {
         fun onSuccess(json: String)
+        fun onError(message: String)
+    }
+
+    private interface TextCallback {
+        fun onSuccess(text: String)
         fun onError(message: String)
     }
 }
