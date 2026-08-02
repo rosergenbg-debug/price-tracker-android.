@@ -2,6 +2,8 @@ name: Android Build
 
 on:
   push:
+    branches: [ "main", "agent/**" ]
+  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 

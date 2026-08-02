@@ -6,8 +6,10 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.github.mikephil.charting.charts.LineChart
@@ -42,21 +44,29 @@ class MainActivity : AppCompatActivity() {
     private val coinbaseBtcUrl = "https://api.coinbase.com/v2/prices/BTC-EUR/spot"
     private val stooqQuoteBaseUrl = "https://stooq.com/q/l/"
     private val yahooChartBaseUrl = "https://query1.finance.yahoo.com/v8/finance/chart"
+    private val binanceSpotBaseUrl = "https://data-api.binance.vision/api/v3"
     private val troyOuncesPerKilogram = 32.1507466
     private val lastPricesKey = "last_prices_proxy_v1"
+    private val lastPumpPriceKey = "last_pump_eur_v1"
     private val refreshIntervalSeconds = 80
     private val fallbackPriceLock = Any()
+    private val assets = listOf("gold", "silver", "bitcoin", "pump")
 
     private var activeAsset = "bitcoin"
     private var days = 1
     private var timeLeft = refreshIntervalSeconds
+    private var showAllCharts = false
 
     private var chart: LineChart? = null
+    private val overviewCharts = mutableMapOf<String, LineChart>()
+    private var allChartsScroll: ScrollView? = null
+    private var btnShowAll: Button? = null
     private var tvStatus: TextView? = null
     private var tvTimer: TextView? = null
     private var tvGoldPrice: TextView? = null
     private var tvSilverPrice: TextView? = null
     private var tvBitcoinPrice: TextView? = null
+    private var tvPumpPrice: TextView? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
@@ -74,13 +84,22 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         chart = findViewById(R.id.lineChart)
+        overviewCharts["gold"] = findViewById(R.id.chartGold)
+        overviewCharts["silver"] = findViewById(R.id.chartSilver)
+        overviewCharts["bitcoin"] = findViewById(R.id.chartBitcoin)
+        overviewCharts["pump"] = findViewById(R.id.chartPump)
+        allChartsScroll = findViewById(R.id.allChartsScroll)
+        btnShowAll = findViewById(R.id.btnShowAll)
         tvStatus = findViewById(R.id.tvStatus)
         tvTimer = findViewById(R.id.tvTimer)
         tvGoldPrice = findViewById(R.id.tvGoldPrice)
         tvSilverPrice = findViewById(R.id.tvSilverPrice)
         tvBitcoinPrice = findViewById(R.id.tvBitcoinPrice)
+        tvPumpPrice = findViewById(R.id.tvPumpPrice)
+        findViewById<TextView>(R.id.tvVersion)?.text = "PRICE MONITOR · VERSION ${BuildConfig.VERSION_NAME}"
 
-        setupChart()
+        setupChart(chart)
+        overviewCharts.values.forEach { setupChart(it) }
         setupButtons()
 
         loadPricesFromCache()
@@ -100,17 +119,19 @@ class MainActivity : AppCompatActivity() {
         findViewById<LinearLayout>(R.id.layoutGold)?.setOnClickListener { setAsset("gold") }
         findViewById<LinearLayout>(R.id.layoutSilver)?.setOnClickListener { setAsset("silver") }
         findViewById<LinearLayout>(R.id.layoutBtc)?.setOnClickListener { setAsset("bitcoin") }
+        findViewById<LinearLayout>(R.id.layoutPump)?.setOnClickListener { setAsset("pump") }
 
         findViewById<Button>(R.id.btn1D)?.setOnClickListener { setDays(1) }
         findViewById<Button>(R.id.btn1W)?.setOnClickListener { setDays(7) }
         findViewById<Button>(R.id.btn1M)?.setOnClickListener { setDays(30) }
         findViewById<Button>(R.id.btn1Y)?.setOnClickListener { setDays(365) }
         findViewById<Button>(R.id.btn3Y)?.setOnClickListener { setDays(1095) }
+        btnShowAll?.setOnClickListener { toggleAllCharts() }
         findViewById<Button>(R.id.btnRefresh)?.setOnClickListener { refreshAll(forceChart = true) }
     }
 
-    private fun setupChart() {
-        chart?.apply {
+    private fun setupChart(target: LineChart?) {
+        target?.apply {
             description.isEnabled = false
             legend.isEnabled = false
             xAxis.position = XAxis.XAxisPosition.BOTTOM
@@ -135,6 +156,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setAsset(asset: String) {
         activeAsset = asset
+        showAllCharts = false
+        updateChartMode()
         showChartFromCache(asset, days)
         fetchChartData(asset, days)
     }
@@ -142,21 +165,80 @@ class MainActivity : AppCompatActivity() {
     private fun setDays(newDays: Int) {
         days = newDays
         updateTimeButtons()
-        showChartFromCache(activeAsset, days)
-        fetchChartData(activeAsset, days)
+        visibleAssets().forEach { asset ->
+            showChartFromCache(asset, days)
+            fetchChartData(asset, days)
+        }
     }
 
     private fun refreshAll(forceChart: Boolean = false) {
         timeLeft = refreshIntervalSeconds
         setStatus("Synchronisierung...")
         fetchPrices()
-        fetchChartData(activeAsset, days, forceChart)
+        visibleAssets().forEach { fetchChartData(it, days, forceChart) }
     }
 
+    private fun toggleAllCharts() {
+        showAllCharts = !showAllCharts
+        updateChartMode()
+        visibleAssets().forEach { asset ->
+            showChartFromCache(asset, days)
+            fetchChartData(asset, days)
+        }
+    }
+
+    private fun updateChartMode() {
+        chart?.visibility = if (showAllCharts) View.GONE else View.VISIBLE
+        allChartsScroll?.visibility = if (showAllCharts) View.VISIBLE else View.GONE
+        btnShowAll?.text = if (showAllCharts) "EINZELCHART" else "ALLE 4 CHARTS"
+    }
+
+    private fun visibleAssets(): List<String> = if (showAllCharts) assets else listOf(activeAsset)
+
     private fun fetchPrices() {
+        fetchPumpPrice()
         fetchFallbackPrices { success ->
             if (!success) fetchProxyPrices()
         }
+    }
+
+    private fun fetchPumpPrice() {
+        val lock = Any()
+        var pumpUsdt: Double? = null
+        var eurUsdt: Double? = null
+        var completed = 0
+
+        fun remember(isPump: Boolean, value: Double?) {
+            synchronized(lock) {
+                if (isPump) pumpUsdt = value else eurUsdt = value
+                completed++
+                if (completed == 2) {
+                    val pump = pumpUsdt
+                    val eur = eurUsdt
+                    if (pump != null && eur != null && eur > 0.0) {
+                        val pumpEur = pump / eur
+                        prefs.edit().putLong(lastPumpPriceKey, java.lang.Double.doubleToRawLongBits(pumpEur)).apply()
+                        runOnUiThread { tvPumpPrice?.text = formatPrice("pump", pumpEur) }
+                    }
+                }
+            }
+        }
+
+        fetchBinanceTicker("PUMPUSDT") { remember(true, it) }
+        fetchBinanceTicker("EURUSDT") { remember(false, it) }
+    }
+
+    private fun fetchBinanceTicker(symbol: String, callback: (Double?) -> Unit) {
+        val url = "$binanceSpotBaseUrl/ticker/price?symbol=$symbol"
+        getJson(url, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                callback(JSONObject(json).optString("price").toDoubleOrNull())
+            }
+
+            override fun onError(message: String) {
+                callback(null)
+            }
+        })
     }
 
     private fun fetchProxyPrices() {
@@ -258,7 +340,7 @@ class MainActivity : AppCompatActivity() {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "PriceTrackerAndroid/1.0")
+            .header("User-Agent", "PriceTrackerAndroid/${BuildConfig.VERSION_NAME}")
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -273,7 +355,8 @@ class MainActivity : AppCompatActivity() {
                         callback.onError("API Fehler ${it.code}")
                         return
                     }
-                    if (!body.trimStart().startsWith("{")) {
+                    val trimmed = body.trimStart()
+                    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
                         callback.onError("Keine JSON Antwort")
                         return
                     }
@@ -287,7 +370,7 @@ class MainActivity : AppCompatActivity() {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "text/plain,text/csv,*/*")
-            .header("User-Agent", "PriceTrackerAndroid/1.0")
+            .header("User-Agent", "PriceTrackerAndroid/${BuildConfig.VERSION_NAME}")
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -317,6 +400,8 @@ class MainActivity : AppCompatActivity() {
                 prefs.edit().remove(lastPricesKey).apply()
             }
         }
+
+        latestCachedPumpPrice()?.let { tvPumpPrice?.text = formatPrice("pump", it) }
     }
 
     private fun parseAndSetPrices(json: String) {
@@ -344,26 +429,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun showChartFromCache(asset: String, selectedDays: Int): Boolean {
         val saved = prefs.getString(chartKey(asset, selectedDays), "")
+        val targets = visibleChartTargets(asset)
         if (saved.isNullOrEmpty()) {
-            chart?.clear()
-            chart?.setNoDataText("Warten auf Daten...")
-            chart?.invalidate()
+            targets.forEach { target ->
+                target.clear()
+                target.setNoDataText("Warten auf Daten...")
+                target.invalidate()
+            }
             return false
         }
 
         try {
-            showChartFromJson(asset, selectedDays, saved)
+            targets.forEach { showChartFromJson(asset, selectedDays, saved, it) }
             return true
         } catch (e: Exception) {
             prefs.edit().remove(chartKey(asset, selectedDays)).apply()
-            chart?.clear()
-            chart?.setNoDataText("Keine gueltigen Daten")
-            chart?.invalidate()
+            targets.forEach { target ->
+                target.clear()
+                target.setNoDataText("Keine gueltigen Daten")
+                target.invalidate()
+            }
             return false
         }
     }
 
-    private fun showChartFromJson(asset: String, selectedDays: Int, json: String) {
+    private fun showChartFromJson(asset: String, selectedDays: Int, json: String, target: LineChart) {
         val prices = JSONObject(json).getJSONArray("prices")
         if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
 
@@ -392,22 +482,39 @@ class MainActivity : AppCompatActivity() {
             fillAlpha = 35
         }
 
-        chart?.xAxis?.valueFormatter = object : ValueFormatter() {
+        target.xAxis.valueFormatter = object : ValueFormatter() {
             override fun getFormattedValue(value: Float): String {
                 val index = value.toInt()
                 return if (index >= 0 && index < dates.size) dates[index] else ""
             }
         }
-        chart?.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
-        chart?.data = LineData(dataSet)
-        chart?.invalidate()
+        target.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
+        target.data = LineData(dataSet)
+        target.invalidate()
+    }
+
+    private fun visibleChartTargets(asset: String): List<LineChart> {
+        return if (showAllCharts) {
+            listOfNotNull(overviewCharts[asset])
+        } else if (asset == activeAsset) {
+            listOfNotNull(chart)
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun renderChartIfVisible(asset: String, selectedDays: Int, json: String) {
+        if (!isCurrentChart(asset, selectedDays)) return
+        runOnUiThread {
+            visibleChartTargets(asset).forEach { showChartFromJson(asset, selectedDays, json, it) }
+        }
     }
 
     private fun fetchFallbackChart(asset: String, selectedDays: Int) {
-        if (asset == "bitcoin") {
-            fetchFallbackBitcoinChart(selectedDays)
-        } else {
-            fetchFallbackMetalChart(asset, selectedDays)
+        when (asset) {
+            "bitcoin" -> fetchFallbackBitcoinChart(selectedDays)
+            "pump" -> fetchPumpChart(selectedDays)
+            else -> fetchFallbackMetalChart(asset, selectedDays)
         }
     }
 
@@ -418,9 +525,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val chartJson = yahooBitcoinChartToChartJson(selectedDays, json)
                     cacheChartJson("bitcoin", selectedDays, chartJson)
-                    if (isCurrentChart("bitcoin", selectedDays)) {
-                        runOnUiThread { showChartFromJson("bitcoin", selectedDays, chartJson) }
-                    }
+                    renderChartIfVisible("bitcoin", selectedDays, chartJson)
                     setStatus("Chart aktualisiert")
                 } catch (e: Exception) {
                     if (isCurrentChart("bitcoin", selectedDays)) showFlatFallbackChart("bitcoin", selectedDays)
@@ -458,9 +563,7 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val chartJson = yahooMetalChartToChartJson(asset, selectedDays, metal, fx)
                         cacheChartJson(asset, selectedDays, chartJson)
-                        if (isCurrentChart(asset, selectedDays)) {
-                            runOnUiThread { showChartFromJson(asset, selectedDays, chartJson) }
-                        }
+                        renderChartIfVisible(asset, selectedDays, chartJson)
                         setStatus("Chart aktualisiert")
                     } catch (e: Exception) {
                         if (isCurrentChart(asset, selectedDays)) showFlatFallbackChart(asset, selectedDays)
@@ -493,15 +596,121 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun fetchPumpChart(selectedDays: Int) {
+        val interval = binanceInterval(selectedDays)
+        val limit = binanceLimit(selectedDays)
+        val pumpUrl = "$binanceSpotBaseUrl/klines?symbol=PUMPUSDT&interval=$interval&limit=$limit"
+        val eurUrl = "$binanceSpotBaseUrl/klines?symbol=EURUSDT&interval=$interval&limit=$limit"
+        val lock = Any()
+        var pumpJson: String? = null
+        var eurJson: String? = null
+        var failures = 0
+
+        fun finishIfReady() {
+            synchronized(lock) {
+                if (failures > 0) {
+                    if (isCurrentChart("pump", selectedDays)) showFlatFallbackChart("pump", selectedDays)
+                    return
+                }
+
+                val pump = pumpJson
+                val eur = eurJson
+                if (pump != null && eur != null) {
+                    try {
+                        val chartJson = binancePumpChartToChartJson(selectedDays, pump, eur)
+                        cacheChartJson("pump", selectedDays, chartJson)
+                        renderChartIfVisible("pump", selectedDays, chartJson)
+                        setStatus("Chart aktualisiert")
+                    } catch (e: Exception) {
+                        if (isCurrentChart("pump", selectedDays)) showFlatFallbackChart("pump", selectedDays)
+                    }
+                }
+            }
+        }
+
+        getJson(pumpUrl, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                synchronized(lock) { pumpJson = json }
+                finishIfReady()
+            }
+
+            override fun onError(message: String) {
+                synchronized(lock) { failures++ }
+                finishIfReady()
+            }
+        })
+        getJson(eurUrl, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                synchronized(lock) { eurJson = json }
+                finishIfReady()
+            }
+
+            override fun onError(message: String) {
+                synchronized(lock) { failures++ }
+                finishIfReady()
+            }
+        })
+    }
+
+    private fun binancePumpChartToChartJson(selectedDays: Int, pumpJson: String, eurJson: String): String {
+        val pumpPoints = binanceClosePoints(pumpJson)
+        val eurPoints = binanceClosePoints(eurJson)
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val points = ArrayList<Pair<Long, Double>>()
+
+        pumpPoints.forEach { point ->
+            if (point.first >= cutoff) {
+                val eurUsdt = nearestValue(eurPoints, point.first)
+                if (eurUsdt != null && eurUsdt > 0.0) {
+                    points.add(point.first to (point.second / eurUsdt))
+                }
+            }
+        }
+
+        if (points.size < 2) throw IllegalArgumentException("Too few PUMP points")
+        return chartJson("pump", selectedDays, "EUR", points)
+    }
+
+    private fun binanceClosePoints(json: String): List<Pair<Long, Double>> {
+        val rows = JSONArray(json)
+        val points = ArrayList<Pair<Long, Double>>()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONArray(i)
+            points.add(row.getLong(0) to row.getString(4).toDouble())
+        }
+        return points.sortedBy { it.first }
+    }
+
+    private fun binanceInterval(selectedDays: Int): String {
+        return when (selectedDays) {
+            1 -> "5m"
+            7 -> "15m"
+            30 -> "1h"
+            else -> "1d"
+        }
+    }
+
+    private fun binanceLimit(selectedDays: Int): Int {
+        return when (selectedDays) {
+            1 -> 300
+            7 -> 700
+            30 -> 750
+            365 -> 370
+            else -> 1000
+        }
+    }
+
     private fun showFlatFallbackChart(asset: String, selectedDays: Int) {
         if (!isCurrentChart(asset, selectedDays)) return
 
         val price = latestCachedPrice(asset)
         if (price == null) {
             runOnUiThread {
-                chart?.clear()
-                chart?.setNoDataText("Warten auf Daten...")
-                chart?.invalidate()
+                visibleChartTargets(asset).forEach { target ->
+                    target.clear()
+                    target.setNoDataText("Warten auf Daten...")
+                    target.invalidate()
+                }
             }
             setStatus("Server wartet auf Daten")
             return
@@ -535,21 +744,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         runOnUiThread {
-            chart?.xAxis?.valueFormatter = object : ValueFormatter() {
-                override fun getFormattedValue(value: Float): String {
-                    val index = value.toInt()
-                    return if (index >= 0 && index < dates.size) dates[index] else ""
+            visibleChartTargets(asset).forEach { target ->
+                target.xAxis.valueFormatter = object : ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        val index = value.toInt()
+                        return if (index >= 0 && index < dates.size) dates[index] else ""
+                    }
                 }
+                target.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
+                target.data = LineData(dataSet)
+                target.invalidate()
             }
-            chart?.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
-            chart?.data = LineData(dataSet)
-            chart?.invalidate()
         }
         setStatus("Reserve-Chart angezeigt")
     }
 
     private fun isCurrentChart(asset: String, selectedDays: Int): Boolean {
-        return asset == activeAsset && selectedDays == days
+        return selectedDays == days && (showAllCharts || asset == activeAsset)
     }
 
     private fun yahooRange(selectedDays: Int): String {
@@ -658,6 +869,7 @@ class MainActivity : AppCompatActivity() {
         return when (asset) {
             "gold" -> "#FFD700"
             "silver" -> "#C0C0C0"
+            "pump" -> "#00E676"
             else -> "#F7931A"
         }
     }
@@ -699,6 +911,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun latestCachedPrice(asset: String): Double? {
+        if (asset == "pump") return latestCachedPumpPrice()
+
         val saved = prefs.getString(lastPricesKey, "") ?: return null
         if (saved.isEmpty()) return null
 
@@ -733,11 +947,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun formatPrice(asset: String, value: Double): String {
         val suffix = unitSuffixFor(asset)
-        return if (value >= 1000) {
+        return if (asset == "pump") {
+            String.format(Locale.GERMAN, "EUR %,.6f", value)
+        } else if (value >= 1000) {
             String.format(Locale.GERMAN, "EUR %,.0f%s", value, suffix)
         } else {
             String.format(Locale.GERMAN, "EUR %,.2f%s", value, suffix)
         }
+    }
+
+    private fun latestCachedPumpPrice(): Double? {
+        if (!prefs.contains(lastPumpPriceKey)) return null
+        return java.lang.Double.longBitsToDouble(prefs.getLong(lastPumpPriceKey, 0L))
+            .takeIf { it.isFinite() && it > 0.0 }
     }
 
     private fun setStatus(message: String) {

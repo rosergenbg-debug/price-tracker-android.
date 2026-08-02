@@ -1,29 +1,364 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000">
-    <LinearLayout android:id="@+id/header" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="10dp" android:gravity="center">
-        <LinearLayout android:id="@+id/layoutGold" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/gold"/>
-            <TextView android:id="@+id/tvGoldPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center" android:text="EUR 0/kg" android:textColor="#FFD700" android:textSize="14sp" android:textStyle="bold"/>
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <TextView
+        android:id="@+id/tvVersion"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="6dp"
+        android:text="PRICE MONITOR · VERSION 3.0"
+        android:textColor="#9E9E9E"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/tvVersion"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="4dp">
+
+        <LinearLayout
+            android:id="@+id/layoutGold"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="2dp">
+
+            <ImageView
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="Gold"
+                android:src="@drawable/gold" />
+
+            <TextView
+                android:id="@+id/tvGoldPrice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:text="EUR 0/kg"
+                android:textColor="#FFD700"
+                android:textSize="11sp"
+                android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/layoutSilver" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/silver"/>
-            <TextView android:id="@+id/tvSilverPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center" android:text="EUR 0/kg" android:textColor="#C0C0C0" android:textSize="14sp" android:textStyle="bold"/>
+
+        <LinearLayout
+            android:id="@+id/layoutSilver"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="2dp">
+
+            <ImageView
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="Silber"
+                android:src="@drawable/silver" />
+
+            <TextView
+                android:id="@+id/tvSilverPrice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:text="EUR 0/kg"
+                android:textColor="#C0C0C0"
+                android:textSize="11sp"
+                android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/layoutBtc" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:src="@drawable/bitcoin"/>
-            <TextView android:id="@+id/tvBitcoinPrice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EUR 0" android:textColor="#F7931A" android:textSize="18sp" android:textStyle="bold"/>
+
+        <LinearLayout
+            android:id="@+id/layoutBtc"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="2dp">
+
+            <ImageView
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:contentDescription="Bitcoin"
+                android:src="@drawable/bitcoin" />
+
+            <TextView
+                android:id="@+id/tvBitcoinPrice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:text="EUR 0"
+                android:textColor="#F7931A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layoutPump"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="2dp">
+
+            <TextView
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/pump_badge"
+                android:gravity="center"
+                android:text="P"
+                android:textColor="#001A10"
+                android:textSize="25sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvPumpPrice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:text="EUR 0.0000"
+                android:textColor="#00E676"
+                android:textSize="11sp"
+                android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
-    <TextView android:id="@+id/tvTimer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_below="@id/header" android:layout_alignParentEnd="true" android:layout_marginEnd="10dp" android:text="Aktualisierung: 80s" android:textColor="#AB47BC" android:textSize="12sp"/>
-    <com.github.mikephil.charting.charts.LineChart android:id="@+id/lineChart" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_above="@+id/timeButtons" android:layout_below="@id/tvTimer" android:layout_margin="10dp"/>
-    <LinearLayout android:id="@+id/timeButtons" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_above="@+id/btnRefresh" android:orientation="horizontal" android:padding="5dp">
-        <Button android:id="@+id/btn1D" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1D" android:backgroundTint="#AB47BC" android:textSize="12sp"/>
-        <Button android:id="@+id/btn1W" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1W" android:backgroundTint="#AB47BC" android:textSize="12sp"/>
-        <Button android:id="@+id/btn1M" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1M" android:backgroundTint="#AB47BC" android:textSize="12sp"/>
-        <Button android:id="@+id/btn1Y" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1Y" android:backgroundTint="#AB47BC" android:textSize="12sp"/>
-        <Button android:id="@+id/btn3Y" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="3Y" android:backgroundTint="#AB47BC" android:textSize="12sp"/>
+
+    <TextView
+        android:id="@+id/tvTimer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/header"
+        android:layout_alignParentEnd="true"
+        android:layout_marginEnd="10dp"
+        android:text="Aktualisierung: 80s"
+        android:textColor="#AB47BC"
+        android:textSize="12sp" />
+
+    <FrameLayout
+        android:id="@+id/chartContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/bottomControls"
+        android:layout_below="@id/tvTimer"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginEnd="6dp">
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/lineChart"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="4dp" />
+
+        <ScrollView
+            android:id="@+id/allChartsScroll"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="GOLD · EUR/kg"
+                    android:textColor="#FFD700"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/chartGold"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="SILBER · EUR/kg"
+                    android:textColor="#C0C0C0"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/chartSilver"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="BITCOIN · EUR"
+                    android:textColor="#F7931A"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/chartBitcoin"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="PUMP · EUR"
+                    android:textColor="#00E676"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/chartPump"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="Warten..."
+            android:textColor="#757575"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:id="@+id/timeButtons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn1D"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#AB47BC"
+                android:minHeight="0dp"
+                android:text="1D"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btn1W"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#AB47BC"
+                android:minHeight="0dp"
+                android:text="1W"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btn1M"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#AB47BC"
+                android:minHeight="0dp"
+                android:text="1M"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btn1Y"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#AB47BC"
+                android:minHeight="0dp"
+                android:text="1Y"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btn3Y"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:backgroundTint="#AB47BC"
+                android:minHeight="0dp"
+                android:text="3Y"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnShowAll"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="3dp"
+                android:backgroundTint="#3949AB"
+                android:text="ALLE 4 CHARTS"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnRefresh"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:backgroundTint="#1B5E20"
+                android:text="AKTUALISIEREN"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvEmail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:autoLink="email"
+            android:linksClickable="true"
+            android:paddingTop="3dp"
+            android:paddingBottom="2dp"
+            android:text="Kontakt: roserge.nbg@gmail.com"
+            android:textColor="#64B5F6"
+            android:textColorLink="#64B5F6"
+            android:textSize="11sp" />
     </LinearLayout>
-    <Button android:id="@+id/btnRefresh" android:layout_width="match_parent" android:layout_height="60dp" android:layout_alignParentBottom="true" android:layout_margin="10dp" android:backgroundTint="#1B5E20" android:text="JETZT AKTUALISIEREN" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"/>
-    <TextView android:id="@+id/tvStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_above="@id/btnRefresh" android:layout_centerHorizontal="true" android:text="Warten..." android:textColor="#757575" android:textSize="10sp"/>
 </RelativeLayout>
