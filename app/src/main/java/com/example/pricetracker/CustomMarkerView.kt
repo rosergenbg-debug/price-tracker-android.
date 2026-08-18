@@ -5,15 +5,26 @@ import com.github.mikephil.charting.components.MarkerView
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.highlight.Highlight
 import com.github.mikephil.charting.utils.MPPointF
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class CustomMarkerView(
     context: Context,
     layoutResource: Int,
     private val basePrice: Float,
-    private val unitSuffix: String
+    private val unitSuffix: String,
+    private val firstTimeMs: Long,
+    selectedDays: Int
 ) : MarkerView(context, layoutResource) {
     private val tvContent: TextView? = findViewById(R.id.tvContent)
+    private val dateFormat = if (selectedDays == 1) {
+        SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN)
+    } else {
+        SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMAN)
+    }
+
     override fun refreshContent(e: Entry?, highlight: Highlight?) {
         if (e != null && basePrice > 0f) {
             val value = e.y
@@ -24,7 +35,15 @@ class CustomMarkerView(
             } else {
                 String.format(Locale.GERMAN, "EUR %,.2f%s", value, unitSuffix)
             }
-            tvContent?.text = String.format(Locale.GERMAN, "%s\n%s%.2f%%", price, sign, percent)
+            val time = firstTimeMs + (e.x * TimeUnit.HOURS.toMillis(1)).toLong()
+            tvContent?.text = String.format(
+                Locale.GERMAN,
+                "%s\n%s\n%s%.2f%%",
+                dateFormat.format(Date(time)),
+                price,
+                sign,
+                percent
+            )
         }
         super.refreshContent(e, highlight)
     }
