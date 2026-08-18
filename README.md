@@ -13,6 +13,8 @@ Tap an asset for a large single chart, or use **ALLE 4 CHARTS** to compare all f
 
 Current prices and charts are cached locally so the latest available data remains visible during temporary API outages.
 
+Charts stay fixed to the selected period. A compact panel in the upper-left corner shows the percentage change from the first point to the latest point plus the exact minimum and maximum values for that period.
+
 ## Data sources
 
 - Coinbase: current Bitcoin price
@@ -25,6 +27,6 @@ Current prices and charts are cached locally so the latest available data remain
 
 Open the project in Android Studio, let Gradle sync, and run the `app` configuration on Android 7.0 (API 24) or newer.
 
-Version: **3.0**
+Version: **3.2**
 
 Contact: [roserge.nbg@gmail.com](mailto:roserge.nbg@gmail.com)
