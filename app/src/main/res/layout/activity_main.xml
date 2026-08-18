@@ -260,6 +260,17 @@
             android:textColor="#757575"
             android:textSize="10sp" />
 
+        <TextView
+            android:id="@+id/tvHistoryHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:gravity="center"
+            android:text="← Wischen: bis 3 Monate zurück · Zeitraum erneut: jetzt"
+            android:textColor="#9E9E9E"
+            android:textSize="9sp" />
+
         <LinearLayout
             android:id="@+id/timeButtons"
             android:layout_width="match_parent"
