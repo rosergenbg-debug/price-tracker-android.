@@ -29,6 +29,7 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TreeMap
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -49,7 +50,10 @@ class MainActivity : AppCompatActivity() {
     private val lastPricesKey = "last_prices_proxy_v1"
     private val lastPumpPriceKey = "last_pump_eur_v1"
     private val refreshIntervalSeconds = 80
+    private val scrollHistoryDays = 90
+    private val historyRetentionDays = 1095
     private val fallbackPriceLock = Any()
+    private val historyLock = Any()
     private val assets = listOf("gold", "silver", "bitcoin", "pump")
 
     private var activeAsset = "bitcoin"
@@ -139,6 +143,14 @@ class MainActivity : AppCompatActivity() {
             xAxis.granularity = 1f
             axisLeft.textColor = Color.WHITE
             axisRight.isEnabled = false
+            setTouchEnabled(true)
+            setDragEnabled(true)
+            setScaleEnabled(true)
+            setPinchZoom(true)
+            isDoubleTapToZoomEnabled = true
+            setAutoScaleMinMaxEnabled(true)
+            isDragDecelerationEnabled = true
+            dragDecelerationFrictionCoef = 0.9f
             setNoDataText("Warten auf Daten...")
             setNoDataTextColor(Color.WHITE)
         }
@@ -158,17 +170,21 @@ class MainActivity : AppCompatActivity() {
         activeAsset = asset
         showAllCharts = false
         updateChartMode()
+        chart?.clear()
         showChartFromCache(asset, days)
         fetchChartData(asset, days)
     }
 
     private fun setDays(newDays: Int) {
+        val returnToLatest = days == newDays
         days = newDays
         updateTimeButtons()
         visibleAssets().forEach { asset ->
+            visibleChartTargets(asset).forEach { it.clear() }
             showChartFromCache(asset, days)
             fetchChartData(asset, days)
         }
+        if (returnToLatest) moveVisibleChartsToLatest()
     }
 
     private fun refreshAll(forceChart: Boolean = false) {
@@ -182,6 +198,7 @@ class MainActivity : AppCompatActivity() {
         showAllCharts = !showAllCharts
         updateChartMode()
         visibleAssets().forEach { asset ->
+            visibleChartTargets(asset).forEach { it.clear() }
             showChartFromCache(asset, days)
             fetchChartData(asset, days)
         }
@@ -194,6 +211,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun visibleAssets(): List<String> = if (showAllCharts) assets else listOf(activeAsset)
+
+    private fun moveVisibleChartsToLatest() {
+        visibleAssets().forEach { asset ->
+            visibleChartTargets(asset).forEach { target ->
+                target.data?.let { target.moveViewToX(it.xMax) }
+            }
+        }
+    }
 
     private fun fetchPrices() {
         fetchPumpPrice()
@@ -428,7 +453,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showChartFromCache(asset: String, selectedDays: Int): Boolean {
-        val saved = prefs.getString(chartKey(asset, selectedDays), "")
+        val saved = cachedHistory(asset, selectedDays)
         val targets = visibleChartTargets(asset)
         if (saved.isNullOrEmpty()) {
             targets.forEach { target ->
@@ -443,7 +468,10 @@ class MainActivity : AppCompatActivity() {
             targets.forEach { showChartFromJson(asset, selectedDays, saved, it) }
             return true
         } catch (e: Exception) {
-            prefs.edit().remove(chartKey(asset, selectedDays)).apply()
+            prefs.edit()
+                .remove(chartHistoryKey(asset))
+                .remove(chartKey(asset, selectedDays))
+                .apply()
             targets.forEach { target ->
                 target.clear()
                 target.setNoDataText("Keine gueltigen Daten")
@@ -458,7 +486,8 @@ class MainActivity : AppCompatActivity() {
         if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
 
         val entries = ArrayList<Entry>()
-        val dates = ArrayList<String>()
+        val firstTime = prices.getJSONArray(0).getLong(0)
+        val lastTime = prices.getJSONArray(prices.length() - 1).getLong(0)
         val sdf = when (selectedDays) {
             1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
             7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
@@ -467,9 +496,24 @@ class MainActivity : AppCompatActivity() {
 
         for (i in 0 until prices.length()) {
             val point = prices.getJSONArray(i)
-            entries.add(Entry(i.toFloat(), point.getDouble(1).toFloat()))
-            dates.add(sdf.format(Date(point.getLong(0))))
+            val hoursFromStart = (point.getLong(0) - firstTime) / TimeUnit.HOURS.toMillis(1).toFloat()
+            entries.add(Entry(hoursFromStart, point.getDouble(1).toFloat()))
         }
+
+        val selectedCutoff = lastTime - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        var selectedBasePrice = entries.first().y
+        for (i in 0 until prices.length()) {
+            if (prices.getJSONArray(i).getLong(0) >= selectedCutoff) {
+                selectedBasePrice = entries[i].y
+                break
+            }
+        }
+
+        val oldData = target.data
+        val oldLowestVisibleX = target.lowestVisibleX
+        val wasAtLatest = oldData == null ||
+            oldData.entryCount == 0 ||
+            oldData.xMax - target.highestVisibleX <= 2f
 
         val colorHex = colorFor(asset)
         val dataSet = LineDataSet(entries, "").apply {
@@ -484,13 +528,39 @@ class MainActivity : AppCompatActivity() {
 
         target.xAxis.valueFormatter = object : ValueFormatter() {
             override fun getFormattedValue(value: Float): String {
-                val index = value.toInt()
-                return if (index >= 0 && index < dates.size) dates[index] else ""
+                val time = firstTime + (value * TimeUnit.HOURS.toMillis(1)).toLong()
+                return sdf.format(Date(time))
             }
         }
-        target.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
+        target.xAxis.granularity = axisGranularityHours(selectedDays)
+        target.xAxis.setLabelCount(5, false)
+        target.marker = CustomMarkerView(
+            this,
+            R.layout.marker_view,
+            selectedBasePrice,
+            unitSuffixFor(asset),
+            firstTime,
+            selectedDays
+        )
         target.data = LineData(dataSet)
+        target.notifyDataSetChanged()
+        target.setVisibleXRangeMaximum(TimeUnit.DAYS.toHours(selectedDays.toLong()).toFloat())
+        if (wasAtLatest) {
+            target.moveViewToX(entries.last().x)
+        } else {
+            target.moveViewToX(oldLowestVisibleX.coerceIn(entries.first().x, entries.last().x))
+        }
         target.invalidate()
+    }
+
+    private fun axisGranularityHours(selectedDays: Int): Float {
+        return when (selectedDays) {
+            1 -> 2f
+            7 -> 12f
+            30 -> 24f
+            365 -> 24f * 30f
+            else -> 24f * 90f
+        }
     }
 
     private fun visibleChartTargets(asset: String): List<LineChart> {
@@ -525,7 +595,6 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val chartJson = yahooBitcoinChartToChartJson(selectedDays, json)
                     cacheChartJson("bitcoin", selectedDays, chartJson)
-                    renderChartIfVisible("bitcoin", selectedDays, chartJson)
                     setStatus("Chart aktualisiert")
                 } catch (e: Exception) {
                     if (isCurrentChart("bitcoin", selectedDays)) showFlatFallbackChart("bitcoin", selectedDays)
@@ -563,7 +632,6 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val chartJson = yahooMetalChartToChartJson(asset, selectedDays, metal, fx)
                         cacheChartJson(asset, selectedDays, chartJson)
-                        renderChartIfVisible(asset, selectedDays, chartJson)
                         setStatus("Chart aktualisiert")
                     } catch (e: Exception) {
                         if (isCurrentChart(asset, selectedDays)) showFlatFallbackChart(asset, selectedDays)
@@ -598,9 +666,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun fetchPumpChart(selectedDays: Int) {
         val interval = binanceInterval(selectedDays)
-        val limit = binanceLimit(selectedDays)
-        val pumpUrl = "$binanceSpotBaseUrl/klines?symbol=PUMPUSDT&interval=$interval&limit=$limit"
-        val eurUrl = "$binanceSpotBaseUrl/klines?symbol=EURUSDT&interval=$interval&limit=$limit"
         val lock = Any()
         var pumpJson: String? = null
         var eurJson: String? = null
@@ -619,7 +684,6 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val chartJson = binancePumpChartToChartJson(selectedDays, pump, eur)
                         cacheChartJson("pump", selectedDays, chartJson)
-                        renderChartIfVisible("pump", selectedDays, chartJson)
                         setStatus("Chart aktualisiert")
                     } catch (e: Exception) {
                         if (isCurrentChart("pump", selectedDays)) showFlatFallbackChart("pump", selectedDays)
@@ -628,7 +692,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        getJson(pumpUrl, object : JsonCallback {
+        fetchBinanceHistory("PUMPUSDT", interval, historyWindowDays(selectedDays), object : JsonCallback {
             override fun onSuccess(json: String) {
                 synchronized(lock) { pumpJson = json }
                 finishIfReady()
@@ -639,7 +703,7 @@ class MainActivity : AppCompatActivity() {
                 finishIfReady()
             }
         })
-        getJson(eurUrl, object : JsonCallback {
+        fetchBinanceHistory("EURUSDT", interval, historyWindowDays(selectedDays), object : JsonCallback {
             override fun onSuccess(json: String) {
                 synchronized(lock) { eurJson = json }
                 finishIfReady()
@@ -652,10 +716,56 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun fetchBinanceHistory(
+        symbol: String,
+        interval: String,
+        requestedDays: Int,
+        callback: JsonCallback
+    ) {
+        val endTime = System.currentTimeMillis()
+        val startTime = endTime - TimeUnit.DAYS.toMillis(requestedDays.toLong())
+        val collected = JSONArray()
+
+        fun fetchPage(cursor: Long) {
+            val url = "$binanceSpotBaseUrl/klines?symbol=$symbol&interval=$interval" +
+                "&limit=1000&startTime=$cursor&endTime=$endTime"
+            getJson(url, object : JsonCallback {
+                override fun onSuccess(json: String) {
+                    try {
+                        val rows = JSONArray(json)
+                        if (rows.length() == 0) {
+                            callback.onSuccess(collected.toString())
+                            return
+                        }
+
+                        for (i in 0 until rows.length()) collected.put(rows.getJSONArray(i))
+                        val lastOpenTime = rows.getJSONArray(rows.length() - 1).getLong(0)
+                        val nextCursor = lastOpenTime + 1L
+
+                        if (rows.length() >= 1000 && nextCursor in (cursor + 1)..endTime) {
+                            fetchPage(nextCursor)
+                        } else {
+                            callback.onSuccess(collected.toString())
+                        }
+                    } catch (e: Exception) {
+                        callback.onError("Ungueltige Binance-Historie")
+                    }
+                }
+
+                override fun onError(message: String) {
+                    callback.onError(message)
+                }
+            })
+        }
+
+        fetchPage(startTime)
+    }
+
     private fun binancePumpChartToChartJson(selectedDays: Int, pumpJson: String, eurJson: String): String {
         val pumpPoints = binanceClosePoints(pumpJson)
         val eurPoints = binanceClosePoints(eurJson)
-        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val cutoff = System.currentTimeMillis() -
+            TimeUnit.DAYS.toMillis(historyWindowDays(selectedDays).toLong())
         val points = ArrayList<Pair<Long, Double>>()
 
         pumpPoints.forEach { point ->
@@ -683,20 +793,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun binanceInterval(selectedDays: Int): String {
         return when (selectedDays) {
-            1 -> "5m"
-            7 -> "15m"
-            30 -> "1h"
+            1, 7, 30 -> "1h"
             else -> "1d"
-        }
-    }
-
-    private fun binanceLimit(selectedDays: Int): Int {
-        return when (selectedDays) {
-            1 -> 300
-            7 -> 700
-            30 -> 750
-            365 -> 370
-            else -> 1000
         }
     }
 
@@ -751,7 +849,14 @@ class MainActivity : AppCompatActivity() {
                         return if (index >= 0 && index < dates.size) dates[index] else ""
                     }
                 }
-                target.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
+                target.marker = CustomMarkerView(
+                    this,
+                    R.layout.marker_view,
+                    points.first().y,
+                    unitSuffixFor(asset),
+                    now - span,
+                    selectedDays
+                )
                 target.data = LineData(dataSet)
                 target.invalidate()
             }
@@ -765,9 +870,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun yahooRange(selectedDays: Int): String {
         return when (selectedDays) {
-            1 -> "1d"
-            7 -> "1mo"
-            30 -> "1mo"
+            1, 7, 30 -> "3mo"
             365 -> "1y"
             else -> "5y"
         }
@@ -775,15 +878,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun yahooInterval(selectedDays: Int): String {
         return when (selectedDays) {
-            1 -> "5m"
-            7 -> "1h"
+            1, 7, 30 -> "1h"
             else -> "1d"
         }
     }
 
     private fun yahooBitcoinChartToChartJson(selectedDays: Int, json: String): String {
         val sourcePoints = yahooClosePoints(json)
-        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(historyWindowDays(selectedDays).toLong())
         val points = ArrayList<Pair<Long, Double>>()
 
         sourcePoints.forEach { point ->
@@ -797,7 +899,7 @@ class MainActivity : AppCompatActivity() {
     private fun yahooMetalChartToChartJson(asset: String, selectedDays: Int, metalJson: String, fxJson: String): String {
         val metalPoints = yahooClosePoints(metalJson)
         val fxPoints = yahooClosePoints(fxJson)
-        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(historyWindowDays(selectedDays).toLong())
         val points = ArrayList<Pair<Long, Double>>()
 
         metalPoints.forEach { point ->
@@ -876,17 +978,89 @@ class MainActivity : AppCompatActivity() {
 
     private fun chartKey(asset: String, selectedDays: Int): String = "chart_proxy_${asset}_$selectedDays"
 
+    private fun chartHistoryKey(asset: String): String = "chart_history_v2_$asset"
+
     private fun chartFetchedAtKey(asset: String, selectedDays: Int): String = "${chartKey(asset, selectedDays)}_fetched_at"
 
     private fun cacheChartJson(asset: String, selectedDays: Int, json: String) {
-        prefs.edit()
-            .putString(chartKey(asset, selectedDays), json)
-            .putLong(chartFetchedAtKey(asset, selectedDays), System.currentTimeMillis())
-            .apply()
+        val displayJson = synchronized(historyLock) {
+            val merged = TreeMap<Long, Double>()
+            val incoming = JSONObject(json)
+            val unit = incoming.optString("unit", if (asset == "gold" || asset == "silver") "EUR/kg" else "EUR")
+
+            fun addPoints(source: String?) {
+                if (source.isNullOrEmpty()) return
+                try {
+                    val prices = JSONObject(source).getJSONArray("prices")
+                    for (i in 0 until prices.length()) {
+                        val point = prices.getJSONArray(i)
+                        merged[point.getLong(0)] = point.getDouble(1)
+                    }
+                } catch (_: Exception) {
+                    // Ignore an obsolete or damaged cache entry and keep the valid history.
+                }
+            }
+
+            addPoints(prefs.getString(chartHistoryKey(asset), ""))
+            if (merged.isEmpty()) {
+                listOf(1, 7, 30, 365, 1095).forEach {
+                    addPoints(prefs.getString(chartKey(asset, it), ""))
+                }
+            }
+            addPoints(json)
+
+            val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(historyRetentionDays.toLong())
+            val retained = merged.entries
+                .filter { it.key >= cutoff }
+                .map { it.key to it.value }
+            val historyJson = chartJson(asset, historyRetentionDays, unit, retained)
+            val editor = prefs.edit().putString(chartHistoryKey(asset), historyJson)
+            val fetchedAt = System.currentTimeMillis()
+            if (selectedDays <= 30) {
+                listOf(1, 7, 30).forEach {
+                    editor.putLong(chartFetchedAtKey(asset, it), fetchedAt)
+                }
+            } else {
+                editor.putLong(chartFetchedAtKey(asset, selectedDays), fetchedAt)
+            }
+            editor.apply()
+            historyForDisplay(asset, selectedDays, historyJson)
+        }
+
+        renderChartIfVisible(asset, selectedDays, displayJson)
+    }
+
+    private fun cachedHistory(asset: String, selectedDays: Int): String? {
+        val history = prefs.getString(chartHistoryKey(asset), "")
+        if (!history.isNullOrEmpty()) return historyForDisplay(asset, selectedDays, history)
+
+        val legacy = prefs.getString(chartKey(asset, selectedDays), "")
+        return if (legacy.isNullOrEmpty()) null else legacy
+    }
+
+    private fun historyForDisplay(asset: String, selectedDays: Int, json: String): String {
+        val source = JSONObject(json)
+        val prices = source.getJSONArray("prices")
+        if (prices.length() < 2) return json
+
+        val lastTime = prices.getJSONArray(prices.length() - 1).getLong(0)
+        val cutoff = lastTime - TimeUnit.DAYS.toMillis(historyWindowDays(selectedDays).toLong())
+        val points = ArrayList<Pair<Long, Double>>()
+        for (i in 0 until prices.length()) {
+            val point = prices.getJSONArray(i)
+            if (point.getLong(0) >= cutoff) {
+                points.add(point.getLong(0) to point.getDouble(1))
+            }
+        }
+        return chartJson(asset, selectedDays, source.optString("unit", "EUR"), points)
+    }
+
+    private fun historyWindowDays(selectedDays: Int): Int {
+        return if (selectedDays <= 30) scrollHistoryDays else selectedDays
     }
 
     private fun isChartCacheFresh(asset: String, selectedDays: Int): Boolean {
-        val saved = prefs.getString(chartKey(asset, selectedDays), "")
+        val saved = prefs.getString(chartHistoryKey(asset), "")
         if (saved.isNullOrEmpty()) return false
 
         val fetchedAt = prefs.getLong(chartFetchedAtKey(asset, selectedDays), 0L)
@@ -900,8 +1074,8 @@ class MainActivity : AppCompatActivity() {
             1 -> TimeUnit.MINUTES.toMillis(5)
             7 -> TimeUnit.HOURS.toMillis(6)
             30 -> TimeUnit.HOURS.toMillis(12)
-            365 -> TimeUnit.DAYS.toMillis(180)
-            else -> TimeUnit.DAYS.toMillis(730)
+            365 -> TimeUnit.DAYS.toMillis(1)
+            else -> TimeUnit.DAYS.toMillis(7)
         }
     }
 
