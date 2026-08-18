@@ -6,6 +6,9 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -59,6 +62,8 @@ class MainActivity : AppCompatActivity() {
 
     private var chart: LineChart? = null
     private val overviewCharts = mutableMapOf<String, LineChart>()
+    private var chartStats: TextView? = null
+    private val overviewStats = mutableMapOf<String, TextView>()
     private var allChartsScroll: ScrollView? = null
     private var btnShowAll: Button? = null
     private var tvStatus: TextView? = null
@@ -88,6 +93,11 @@ class MainActivity : AppCompatActivity() {
         overviewCharts["silver"] = findViewById(R.id.chartSilver)
         overviewCharts["bitcoin"] = findViewById(R.id.chartBitcoin)
         overviewCharts["pump"] = findViewById(R.id.chartPump)
+        chartStats = findViewById(R.id.chartStats)
+        overviewStats["gold"] = findViewById(R.id.chartStatsGold)
+        overviewStats["silver"] = findViewById(R.id.chartStatsSilver)
+        overviewStats["bitcoin"] = findViewById(R.id.chartStatsBitcoin)
+        overviewStats["pump"] = findViewById(R.id.chartStatsPump)
         allChartsScroll = findViewById(R.id.allChartsScroll)
         btnShowAll = findViewById(R.id.btnShowAll)
         tvStatus = findViewById(R.id.tvStatus)
@@ -139,6 +149,11 @@ class MainActivity : AppCompatActivity() {
             xAxis.granularity = 1f
             axisLeft.textColor = Color.WHITE
             axisRight.isEnabled = false
+            setTouchEnabled(true)
+            setDragEnabled(false)
+            setScaleEnabled(false)
+            setPinchZoom(false)
+            isDoubleTapToZoomEnabled = false
             setNoDataText("Warten auf Daten...")
             setNoDataTextColor(Color.WHITE)
         }
@@ -189,6 +204,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateChartMode() {
         chart?.visibility = if (showAllCharts) View.GONE else View.VISIBLE
+        chartStats?.visibility = if (showAllCharts) View.GONE else chartStats?.visibility ?: View.GONE
         allChartsScroll?.visibility = if (showAllCharts) View.VISIBLE else View.GONE
         btnShowAll?.text = if (showAllCharts) "EINZELCHART" else "ALLE 4 CHARTS"
     }
@@ -435,6 +451,7 @@ class MainActivity : AppCompatActivity() {
                 target.clear()
                 target.setNoDataText("Warten auf Daten...")
                 target.invalidate()
+                statsViewFor(asset, target)?.visibility = View.GONE
             }
             return false
         }
@@ -448,6 +465,7 @@ class MainActivity : AppCompatActivity() {
                 target.clear()
                 target.setNoDataText("Keine gueltigen Daten")
                 target.invalidate()
+                statsViewFor(asset, target)?.visibility = View.GONE
             }
             return false
         }
@@ -490,7 +508,48 @@ class MainActivity : AppCompatActivity() {
         }
         target.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
         target.data = LineData(dataSet)
+        target.fitScreen()
+        updateChartStats(asset, target, entries)
         target.invalidate()
+    }
+
+    private fun statsViewFor(asset: String, target: LineChart): TextView? {
+        return if (target === chart) chartStats else overviewStats[asset]
+    }
+
+    private fun updateChartStats(asset: String, target: LineChart, entries: List<Entry>) {
+        if (entries.size < 2) {
+            statsViewFor(asset, target)?.visibility = View.GONE
+            return
+        }
+
+        val first = entries.first().y.toDouble()
+        val current = entries.last().y.toDouble()
+        val minimum = entries.minOf { it.y.toDouble() }
+        val maximum = entries.maxOf { it.y.toDouble() }
+        val changePercent = if (first > 0.0) ((current - first) / first) * 100.0 else 0.0
+        val changeText = String.format(
+            Locale.GERMAN,
+            "%s%.2f%%",
+            if (changePercent >= 0.0) "+" else "",
+            changePercent
+        )
+        val text = "$changeText\nMIN  ${formatPrice(asset, minimum)}\nMAX  ${formatPrice(asset, maximum)}"
+        val styled = SpannableString(text).apply {
+            setSpan(
+                ForegroundColorSpan(
+                    Color.parseColor(if (changePercent >= 0.0) "#00E676" else "#FF5252")
+                ),
+                0,
+                changeText.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        statsViewFor(asset, target)?.apply {
+            this.text = styled
+            visibility = View.VISIBLE
+        }
     }
 
     private fun visibleChartTargets(asset: String): List<LineChart> {
@@ -753,6 +812,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 target.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
                 target.data = LineData(dataSet)
+                target.fitScreen()
+                updateChartStats(asset, target, points)
                 target.invalidate()
             }
         }
