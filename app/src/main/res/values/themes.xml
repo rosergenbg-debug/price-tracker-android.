@@ -1,4 +1,19 @@
 <resources>
+    <style name="ChartStatsOverlay">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_gravity">top|start</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginTop">6dp</item>
+        <item name="android:background">@drawable/chart_stats_background</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:minWidth">132dp</item>
+        <item name="android:padding">6dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:visibility">gone</item>
+    </style>
     <style name="Theme.PriceTracker" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">#FFD700</item>
         <item name="android:statusBarColor">#121212</item>
