@@ -52,6 +52,10 @@ class MainActivity : AppCompatActivity() {
     private val lastPricesKey = "last_prices_proxy_v1"
     private val lastPumpPriceKey = "last_pump_eur_v1"
     private val refreshIntervalSeconds = 80
+    private val chartHourMillis = TimeUnit.HOURS.toMillis(1)
+    // One wall-clock snapshot shared by Gold, Silver, Bitcoin and PUMP.
+    // Never anchor each chart to its own first/last market sample.
+    private var chartWindowEndMs = System.currentTimeMillis()
     private val fallbackPriceLock = Any()
     private val assets = listOf("gold", "silver", "bitcoin", "pump")
 
@@ -149,6 +153,10 @@ class MainActivity : AppCompatActivity() {
             xAxis.granularity = 1f
             axisLeft.textColor = Color.WHITE
             axisRight.isEnabled = false
+            // Equal plot boundaries across all four charts, regardless of Y-label width.
+            // MPAndroidChart normally auto-sizes the left viewport for each price scale.
+            val density = resources.displayMetrics.density
+            setViewPortOffsets(78f * density, 12f * density, 12f * density, 35f * density)
             setTouchEnabled(true)
             setDragEnabled(false)
             setScaleEnabled(false)
@@ -170,6 +178,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setAsset(asset: String) {
+        resetChartWindow()
         activeAsset = asset
         showAllCharts = false
         updateChartMode()
@@ -178,6 +187,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setDays(newDays: Int) {
+        resetChartWindow()
         days = newDays
         updateTimeButtons()
         visibleAssets().forEach { asset ->
@@ -188,12 +198,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshAll(forceChart: Boolean = false) {
         timeLeft = refreshIntervalSeconds
+        resetChartWindow()
         setStatus("Synchronisierung...")
+        // Advance all visible plots together, even while awaiting fresh network data.
+        visibleAssets().forEach { showChartFromCache(it, days) }
         fetchPrices()
         visibleAssets().forEach { fetchChartData(it, days, forceChart) }
     }
 
     private fun toggleAllCharts() {
+        resetChartWindow()
         showAllCharts = !showAllCharts
         updateChartMode()
         visibleAssets().forEach { asset ->
@@ -471,22 +485,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun resetChartWindow() {
+        chartWindowEndMs = System.currentTimeMillis()
+    }
+
+    private fun chartWindowStartMs(selectedDays: Int): Long {
+        return chartWindowEndMs - TimeUnit.DAYS.toMillis(selectedDays.toLong())
+    }
+
+    private fun configureSharedTimeAxis(target: LineChart, selectedDays: Int, windowStartMs: Long) {
+        val hoursInWindow = selectedDays * 24f
+        val dateFormatter = SimpleDateFormat(
+            when (selectedDays) {
+                1 -> "HH:mm"
+                7, 30 -> "dd. MMM"
+                else -> "MMM yy"
+            },
+            Locale.GERMAN
+        )
+        target.xAxis.apply {
+            // Hours relative to the same start are safe as Float; epoch millis are not.
+            axisMinimum = 0f
+            axisMaximum = hoursInWindow
+            setLabelCount(5, true)
+            valueFormatter = object : ValueFormatter() {
+                override fun getFormattedValue(value: Float): String {
+                    val hours = value.coerceIn(0f, hoursInWindow).toDouble()
+                    val tickMs = windowStartMs + (hours * chartHourMillis).toLong()
+                    return dateFormatter.format(Date(tickMs))
+                }
+            }
+        }
+    }
+
     private fun showChartFromJson(asset: String, selectedDays: Int, json: String, target: LineChart) {
         val prices = JSONObject(json).getJSONArray("prices")
-        if (prices.length() < 2) throw IllegalArgumentException("Too few chart points")
-
+        val windowStartMs = chartWindowStartMs(selectedDays)
+        val windowEndMs = chartWindowEndMs
+        val hoursInWindow = selectedDays * 24f
         val entries = ArrayList<Entry>()
-        val dates = ArrayList<String>()
-        val sdf = when (selectedDays) {
-            1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
-            7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
-            else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
-        }
 
         for (i in 0 until prices.length()) {
             val point = prices.getJSONArray(i)
-            entries.add(Entry(i.toFloat(), point.getDouble(1).toFloat()))
-            dates.add(sdf.format(Date(point.getLong(0))))
+            val timestampMs = point.getLong(0)
+            val price = point.getDouble(1)
+            // Do not squeeze closed-market gaps or data-source-specific intervals.
+            if (timestampMs in windowStartMs..windowEndMs && price.isFinite() && price > 0.0) {
+                val hours = (timestampMs - windowStartMs).toDouble() / chartHourMillis
+                if (hours >= 0.0 && hours <= hoursInWindow) {
+                    entries.add(Entry(hours.toFloat(), price.toFloat()))
+                }
+            }
+        }
+
+        entries.sortBy { it.x }
+        configureSharedTimeAxis(target, selectedDays, windowStartMs)
+
+        if (entries.size < 2) {
+            target.clear()
+            target.setNoDataText("Keine Kursdaten im Zeitraum")
+            statsViewFor(asset, target)?.visibility = View.GONE
+            target.invalidate()
+            return
         }
 
         val colorHex = colorFor(asset)
@@ -500,12 +560,6 @@ class MainActivity : AppCompatActivity() {
             fillAlpha = 35
         }
 
-        target.xAxis.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float): String {
-                val index = value.toInt()
-                return if (index >= 0 && index < dates.size) dates[index] else ""
-            }
-        }
         target.marker = CustomMarkerView(this, R.layout.marker_view, entries.first().y, unitSuffixFor(asset))
         target.data = LineData(dataSet)
         target.fitScreen()
@@ -762,62 +816,30 @@ class MainActivity : AppCompatActivity() {
     private fun showFlatFallbackChart(asset: String, selectedDays: Int) {
         if (!isCurrentChart(asset, selectedDays)) return
 
-        val price = latestCachedPrice(asset)
-        if (price == null) {
-            runOnUiThread {
-                visibleChartTargets(asset).forEach { target ->
-                    target.clear()
-                    target.setNoDataText("Warten auf Daten...")
-                    target.invalidate()
+        // Retain real cached market history if a provider is temporarily unavailable.
+        // Never manufacture a flat price series across periods without trades.
+        runOnUiThread {
+            if (!isCurrentChart(asset, selectedDays)) return@runOnUiThread
+            val saved = prefs.getString(chartKey(asset, selectedDays), "")
+            if (!saved.isNullOrEmpty()) {
+                try {
+                    visibleChartTargets(asset).forEach {
+                        showChartFromJson(asset, selectedDays, saved, it)
+                    }
+                    setStatus("Gespeicherte Kursdaten angezeigt")
+                    return@runOnUiThread
+                } catch (_: Exception) {
+                    // Fall through to an explicit no-data state.
                 }
             }
-            setStatus("Server wartet auf Daten")
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val span = TimeUnit.DAYS.toMillis(selectedDays.toLong())
-        val points = ArrayList<Entry>()
-        val dates = ArrayList<String>()
-        val sdf = when (selectedDays) {
-            1 -> SimpleDateFormat("HH:mm", Locale.GERMAN)
-            7, 30 -> SimpleDateFormat("dd. MMM", Locale.GERMAN)
-            else -> SimpleDateFormat("MMM yy", Locale.GERMAN)
-        }
-
-        for (i in 0 until 8) {
-            val time = now - span + (span / 7L * i)
-            points.add(Entry(i.toFloat(), price.toFloat()))
-            dates.add(sdf.format(Date(time)))
-        }
-
-        val colorHex = colorFor(asset)
-        val dataSet = LineDataSet(points, "").apply {
-            color = Color.parseColor(colorHex)
-            setDrawCircles(false)
-            setDrawValues(false)
-            lineWidth = 2.2f
-            setDrawFilled(true)
-            fillColor = Color.parseColor(colorHex)
-            fillAlpha = 35
-        }
-
-        runOnUiThread {
             visibleChartTargets(asset).forEach { target ->
-                target.xAxis.valueFormatter = object : ValueFormatter() {
-                    override fun getFormattedValue(value: Float): String {
-                        val index = value.toInt()
-                        return if (index >= 0 && index < dates.size) dates[index] else ""
-                    }
-                }
-                target.marker = CustomMarkerView(this, R.layout.marker_view, points.first().y, unitSuffixFor(asset))
-                target.data = LineData(dataSet)
-                target.fitScreen()
-                updateChartStats(asset, target, points)
+                target.clear()
+                target.setNoDataText("Keine Kursdaten im Zeitraum")
+                statsViewFor(asset, target)?.visibility = View.GONE
                 target.invalidate()
             }
+            setStatus("Kursdaten nicht verfügbar")
         }
-        setStatus("Reserve-Chart angezeigt")
     }
 
     private fun isCurrentChart(asset: String, selectedDays: Int): Boolean {
@@ -959,10 +981,10 @@ class MainActivity : AppCompatActivity() {
     private fun chartCacheMaxAgeMs(selectedDays: Int): Long {
         return when (selectedDays) {
             1 -> TimeUnit.MINUTES.toMillis(5)
-            7 -> TimeUnit.HOURS.toMillis(6)
-            30 -> TimeUnit.HOURS.toMillis(12)
-            365 -> TimeUnit.DAYS.toMillis(180)
-            else -> TimeUnit.DAYS.toMillis(730)
+            7 -> TimeUnit.MINUTES.toMillis(30)
+            30 -> TimeUnit.HOURS.toMillis(2)
+            365 -> TimeUnit.HOURS.toMillis(12)
+            else -> TimeUnit.HOURS.toMillis(24)
         }
     }
 
