@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private val proxyBaseUrl =
         "https://script.google.com/macros/s/AKfycbzhen0cxlYd3neWueBzzqQAQRFEO5dyKrCv7-enW0mG6ZMCxvbCStZmtpiPcRySltON/exec"
     private val coinbaseBtcUrl = "https://api.coinbase.com/v2/prices/BTC-EUR/spot"
+    private val coinbaseBtcCandlesUrl = "https://api.exchange.coinbase.com/products/BTC-EUR/candles"
     private val stooqQuoteBaseUrl = "https://stooq.com/q/l/"
     private val yahooChartBaseUrl = "https://query1.finance.yahoo.com/v8/finance/chart"
     private val binanceSpotBaseUrl = "https://data-api.binance.vision/api/v3"
@@ -632,6 +633,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchFallbackBitcoinChart(selectedDays: Int) {
+        // Yahoo range=1d is a *calendar/trading session*, not a rolling 24h window.
+        // Coinbase 5-minute candles are a dependable rolling 24h source for BTC-EUR.
+        if (selectedDays == 1) {
+            fetchCoinbaseBitcoinDay()
+        } else {
+            fetchYahooBitcoinChart(selectedDays)
+        }
+    }
+
+    private fun fetchCoinbaseBitcoinDay() {
+        val endMs = System.currentTimeMillis()
+        val startMs = endMs - TimeUnit.DAYS.toMillis(1)
+        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        val start = iso.format(Date(startMs))
+        val end = iso.format(Date(endMs))
+        val url = "$coinbaseBtcCandlesUrl?granularity=300&start=$start&end=$end"
+        getJson(url, object : JsonCallback {
+            override fun onSuccess(json: String) {
+                try {
+                    val candles = JSONArray(json)
+                    val points = ArrayList<Pair<Long, Double>>()
+                    for (i in 0 until candles.length()) {
+                        val candle = candles.getJSONArray(i)
+                        // Coinbase exchange rows are [seconds, low, high, open, close, volume].
+                        points.add(candle.getLong(0) * 1000L to candle.getDouble(4))
+                    }
+                    val sorted = points.sortedBy { it.first }
+                    if (sorted.size < 2) throw IllegalArgumentException("Too few BTC candles")
+                    val chart = chartJson("bitcoin", 1, "EUR", sorted)
+                    cacheChartJson("bitcoin", 1, chart)
+                    renderChartIfVisible("bitcoin", 1, chart)
+                    setStatus("Chart aktualisiert")
+                } catch (_: Exception) {
+                    fetchYahooBitcoinChart(1)
+                }
+            }
+
+            override fun onError(message: String) {
+                fetchYahooBitcoinChart(1)
+            }
+        })
+    }
+
+    private fun fetchYahooBitcoinChart(selectedDays: Int) {
         val url = "$yahooChartBaseUrl/BTC-EUR?range=${yahooRange(selectedDays)}&interval=${yahooInterval(selectedDays)}"
         getJson(url, object : JsonCallback {
             override fun onSuccess(json: String) {
@@ -848,7 +895,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun yahooRange(selectedDays: Int): String {
         return when (selectedDays) {
-            1 -> "1d"
+            1 -> "5d" // 1d would discard earlier hours of the actual last 24h
             7 -> "1mo"
             30 -> "1mo"
             365 -> "1y"
@@ -957,7 +1004,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun chartKey(asset: String, selectedDays: Int): String = "chart_proxy_${asset}_$selectedDays"
+    private fun chartKey(asset: String, selectedDays: Int): String = "chart_proxy_v34_${asset}_$selectedDays"
 
     private fun chartFetchedAtKey(asset: String, selectedDays: Int): String = "${chartKey(asset, selectedDays)}_fetched_at"
 
