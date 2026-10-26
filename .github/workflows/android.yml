@@ -1,9 +1,10 @@
-name: Build Gold & Silver Checker
+name: Gold & Silver Checker Android build
 on:
   push:
     branches: [ 'agent/gold-silver-price-checker' ]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,35 +20,39 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Ensure Android SDK is ready
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-34" "build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.5'
-      - name: Build installable prototype APK
+      - name: Build debug and release APKs
         run: gradle --no-daemon assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: GoldSilverChecker-prototype-debug-APK
+          name: GoldSilverChecker-debug-1.1.0
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 30
-      - name: Upload unsigned release for private offline signing
-        uses: actions/upload-artifact@v4
-        with:
-          name: GoldSilverChecker-unsigned-release-APK
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 14
-      - name: Build updateable release APK (when signing secrets exist)
+      - name: Prepare aligned unsigned release for private signing
+        run: |
+          TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          "$TOOLS/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          cp "$TOOLS/lib/apksigner.jar" ./apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoldSilverChecker-unsigned-release-1.1.0
+          path: |
+            aligned.apk
+            apksigner.jar
+          retention-days: 14
+      - name: Sign release if private GitHub secrets exist
         if: ${{ env.HAS_SIGNING == 'true' }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.jks
-          gradle --no-daemon assembleRelease
-          TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
-          "$TOOLS/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          "$TOOLS/apksigner" sign --ks release.jks --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out GoldSilverChecker-signed.apk aligned.apk
-          "$TOOLS/apksigner" verify GoldSilverChecker-signed.apk
-        # The signed APK uses the same user-owned keystore on every version.
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks release.jks --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out GoldSilverChecker-signed.apk aligned.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify GoldSilverChecker-signed.apk
       - uses: actions/upload-artifact@v4
         if: ${{ env.HAS_SIGNING == 'true' }}
         with:
-          name: GoldSilverChecker-release-signed-APK
+          name: GoldSilverChecker-signed-1.1.0
           path: GoldSilverChecker-signed.apk
