@@ -1,15 +1,26 @@
-# Gold & Silver Price Checker — independent Android app
+# Gold & Silver Price Checker — Android 1.0.0
 
-This branch is a **separate prototype**, not a modification of the existing Price Monitor app.
+Standalone Android project. Separate package `com.rosergenbg.goldchecker`; does **not** modify or share installation data with Price Monitor.
 
-Package: `com.rosergenbg.goldchecker` • Version 1.0.0.
+## What it does
+- Gold purities 999 through 333 and silver purities 999 through 500, side by side.
+- Tap a purity to select it. Enter a weight in each column, e.g. `12,5`.
+- Calculate **spot metal value** and an **indicative pawn / scrap dealer payout** using configurable percentages.
+- EU: EUR and grams. USA: USD and **troy ounces** (31.1034768 grams), not ordinary ounces.
+- Gold API (`api.gold-api.com`) is default; XAUS (`xaus.com`) is the no-key fallback or manually selected provider.
+- EUR foreign-exchange reference rate is sourced from Frankfurter (`frankfurter.dev`) for Gold API; XAUS embeds an FX rate when used.
+- Current prices only, no API keys, no accounts, no app-specific server. Requests go directly from the user's device over HTTPS.
+- Offline: last saved price can be displayed with an explicit **OUTDATED** warning; no invented prices.
+- No ads, analytics, accounts or background polling.
 
-The first commit contains `project-source.txz`, a complete native Android project. GitHub Actions extracts the archive to readable files, builds a prototype APK and uploads it as a workflow artifact.
+## Getting the APK
+GitHub Actions → `Build Gold & Silver Checker` → most recent run → Artifacts → `GoldSilverChecker-prototype-debug-APK`.
 
-Features: gold/silver fineness charts, per-metal weight fields with decimal comma, estimated spot value versus configurable pawn dealer payout, EUR/gram or USD/troy-ounce, Gold API main, XAUS backup, Frankfurter forex, and no accounts or API keys.
+**Important:** Prototype debug APK may use a different ephemeral debug signing key on each CI runner and is **not** guaranteed to update over a prior debug install. For seamless future updates, distribute a release APK signed with **one private keystore**. Keep the keystore private; never commit it or passwords. Increase `versionCode` for each new release and never change the `applicationId` or release signing key. See `SIGNING.md`.
 
-**Signing:** The prototype debug APK is not update-safe across GitHub runners. Stable updates require signing each release with the *same private keystore* (GitHub Actions repository secrets) and incrementing `versionCode` for every update. Never publish signing keys.
+## Data sources
+- [Gold API](https://gold-api.com/docs): `https://api.gold-api.com/price/XAU` and `/price/XAG`. Spot USD per troy ounce.
+- [XAUS](https://xaus.com/api/): `https://xaus.com/api/v1/spot?currency=EUR&compact=1`, uses `spot_usd_oz`, `silver_usd_oz` and `fx_rate`.
+- [Frankfurter](https://frankfurter.dev/): `https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR`, daily FX reference rate.
 
-Full instructions in `SIGNING.md` once the archive is extracted. This branch exists only because this GitHub connection currently does not permit creation of new repositories.
-
-Data sources: https://gold-api.com/docs • https://xaus.com/api/ • https://frankfurter.dev/.
+**Important limitations:** Dealer payout percentages are **user-adjustable assumptions, not live offers**. Scrap dealers may test metal purity, deduct fees and offer different bids. Metal spot prices are indicative and can differ between sources. Data feeds are supplied by third parties and can change or be discontinued. With no personal backend, internet access is still needed to retrieve current prices.
