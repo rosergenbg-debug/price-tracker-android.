@@ -7,8 +7,8 @@ Release certificate SHA-256: `C5:14:66:B6:4C:1F:83:52:DE:CE:2F:62:0B:2C:6C:C7:1A
 
 ## Permanent recovery
 
-- The private backup archive `PriceMonitor-SIGNING-RECOVERY-BUNDLE.zip` is stored in the owner's **private Google Drive** folder `PumpSignal-Signing-Backup` (alongside the unrelated PumpSignal signing backup).
-- Folder: https://drive.google.com/drive/folders/1v4_9elHaUqYODphFk5v6A_ZGxATw-NE7
+- The private backup archive `PriceMonitor-SIGNING-RECOVERY-BUNDLE.zip` is stored in the owner's **private Google Drive** folder `PriceMonitor-Signing-Backup`. PumpSignal uses a separate folder and a separate key.
+- Folder: https://drive.google.com/drive/folders/1SQdS_bmCusMpFPT-IFQIMvBoGGMBNrP9
 - The backup contains the PKCS12 keystore, the strong random password and recovery instructions.
 - The public GitHub repository may store only a **password-protected** PKCS12 file, `.github/signing/PriceMonitor-Update-Key.p12.b64`. Never commit the password or an unencrypted private key. The public repository by itself is not the full signing backup.
 - Add GitHub Actions repository secret `PRICE_MONITOR_KEYSTORE_PASSWORD` with the exact password from the private Google Drive archive. This secret must be configured by an account administrator, not placed in source code.
