@@ -1,6 +1,0 @@
-<resources>
-    <style name="Theme.PriceTracker" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#FFD700</item>
-        <item name="android:statusBarColor">#121212</item>
-    </style>
-</resources>
