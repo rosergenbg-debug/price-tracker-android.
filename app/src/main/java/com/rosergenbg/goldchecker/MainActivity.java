@@ -3,13 +3,16 @@ package com.rosergenbg.goldchecker;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.method.DigitsKeyListener;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
@@ -33,6 +36,8 @@ import java.util.concurrent.Executors;
 
 /** Gold & Silver Price Checker. German / English only, no keys, no backend. */
 public class MainActivity extends Activity {
+    private static final String CONTACT_EMAIL = "roserge.nbg@gmail.com";
+    private static final String PAYPAL_URL = "https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=roserge.nbg%40gmail.com&currency_code=EUR&item_name=Gold%20%26%20Silver%20Price%20Checker%20Support";
     private static final int BG = 0xFF081511;
     private static final int PANEL = 0xFF14291F;
     private static final int FIELD = 0xFF091B16;
@@ -116,6 +121,7 @@ public class MainActivity extends Activity {
         TextView name = txt("Gold & Silver", 22, WHITE, true);
         heading.addView(name);
         heading.addView(txt("PRICE CHECKER", 11, MINT, true));
+        heading.addView(txt(t("Version ", "Version ") + appVersion(), 10, MUTED, false));
         LinearLayout.LayoutParams head = new LinearLayout.LayoutParams(0, -2, 1);
         head.setMargins(dp(9), 0, 0, 0);
         top.addView(heading, head);
@@ -193,9 +199,21 @@ public class MainActivity extends Activity {
 
         TextView note = txt(t("Materialwert = Feingehalt × aktueller Spotkurs. Ankauf = unverbindliche Schätzung, orientiert an veröffentlichten Heubach-Preisen vom 26.10.2026 (Au 98,3 %, Ag 80,8 %). Keine Live-Ankaufsofferte. Preise und Feingehalt vor dem Verkauf prüfen.",
                 "Material value = fineness × current spot price. Dealer estimate is based on published Heubach prices from 26 Oct 2026 (Au 98.3%, Ag 80.8%). This is not a live dealer offer. Verify prices and purity before selling."), 10, MUTED, false);
-        note.setPadding(dp(3), dp(12), dp(3), dp(7));
+        note.setPadding(dp(3), dp(12), dp(3), dp(4));
         root.addView(note);
         root.addView(txt(t("Quellen: Gold API / XAUS · ohne Anmeldung", "Sources: Gold API / XAUS · no signup"), 10, MUTED, false));
+
+        LinearLayout footerButtons = horizontal(Gravity.CENTER_VERTICAL);
+        footerButtons.setPadding(0, dp(12), 0, 0);
+        Button about = button(t("Über die App", "About"), true);
+        about.setOnClickListener(v -> about());
+        footerButtons.addView(about, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        Button bug = button(t("Bug melden", "Report bug"), true);
+        bug.setOnClickListener(v -> sendBugReport());
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        blp.setMargins(dp(8), 0, 0, 0);
+        footerButtons.addView(bug, blp);
+        root.addView(footerButtons);
         updateRows();
         updateStatus();
     }
@@ -248,6 +266,9 @@ public class MainActivity extends Activity {
             input.setGravity(Gravity.CENTER);
             input.setPadding(dp(2), 0, dp(2), 0);
             input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            input.setKeyListener(DigitsKeyListener.getInstance("0123456789,."));
+            // Keep the decimal keypad after applying the accept-comma/dot listener.
+            input.setRawInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
             input.setBackground(round(PANEL, BORDER, 6));
             input.setText(prefs.getString("weight_" + entry.key(), ""));
             input.addTextChangedListener(new TextWatcher() {
@@ -356,6 +377,8 @@ public class MainActivity extends Activity {
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        input.setKeyListener(DigitsKeyListener.getInstance("0123456789,."));
+        input.setRawInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         input.setText(decimal((gold ? goldPayout : silverPayout) * 100, 1));
         input.setPadding(dp(20), dp(10), dp(20), dp(10));
         new AlertDialog.Builder(this).setTitle(t("Ankaufquote in %", "Estimated dealer payout in %"))
@@ -486,6 +509,44 @@ public class MainActivity extends Activity {
         e.apply();
         result.setText(t("Gewicht eintragen und berechnen.", "Enter weight and calculate."));
         toast(t("Alle Eingaben zurückgesetzt", "All weights cleared"));
+    }
+
+    private String appVersion() {
+        return BuildConfig.VERSION_NAME;
+    }
+
+    private void about() {
+        AlertDialog.Builder b = new AlertDialog.Builder(this).setTitle("Gold & Silver Price Checker v" + appVersion());
+        String text = t(
+                "Entwickler: Serge Rosberg\nE-Mail: " + CONTACT_EMAIL +
+                        "\n\nBug-Reports und Wünsche bitte an diese E-Mail senden.\n\nMit PayPal unterstützen: öffnet PayPal mit hinterlegter Empfänger-Adresse.",
+                "Developer: Serge Rosberg\nEmail: " + CONTACT_EMAIL +
+                        "\n\nPlease send bug reports and feature requests to this email.\n\nSupport via PayPal: opens PayPal with the saved recipient email.");
+        b.setMessage(text)
+                .setPositiveButton(t("E-Mail senden", "Send email"), (d, w) -> sendBugReport())
+                .setNeutralButton("PayPal", (d, w) -> openUrl(PAYPAL_URL))
+                .setNegativeButton(t("Schließen", "Close"), null)
+                .show();
+    }
+
+    private void sendBugReport() {
+        try {
+            Intent email = new Intent(Intent.ACTION_SENDTO);
+            email.setData(Uri.parse("mailto:" + CONTACT_EMAIL));
+            email.putExtra(Intent.EXTRA_EMAIL, new String[]{CONTACT_EMAIL});
+            email.putExtra(Intent.EXTRA_SUBJECT, "Gold & Silver Price Checker v" + appVersion() + " - Bug report");
+            startActivity(email);
+        } catch (Exception ex) {
+            toast(t("Keine Mail-App gefunden", "No email app found"));
+        }
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception ex) {
+            toast(t("Link konnte nicht geöffnet werden", "Could not open link"));
+        }
     }
 
     private static double parseWeight(String s) {
