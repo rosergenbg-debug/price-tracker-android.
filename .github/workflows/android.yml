@@ -10,27 +10,46 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    env:
+      PRICE_MONITOR_KEYSTORE_PASSWORD: ${{ secrets.PRICE_MONITOR_KEYSTORE_PASSWORD }}
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-        
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: '8.5'
-      
-    - name: Build APK
+
+    - name: Compile debug APK for CI
       run: gradle assembleDebug
-      
-    - name: Upload APK
+
+    - name: Upload CI debug APK (NOT for release updates)
       uses: actions/upload-artifact@v4
       with:
-        name: PriceTracker-APK
+        name: PriceMonitor-DEBUG-DO-NOT-UPDATE
         path: app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
+
+    - name: Restore password-protected release key
+      if: ${{ env.PRICE_MONITOR_KEYSTORE_PASSWORD != '' }}
+      run: |
+        base64 -d .github/signing/PriceMonitor-Update-Key.p12.b64 > "$RUNNER_TEMP/PriceMonitor-Update-Key.p12"
+        echo "PRICE_MONITOR_KEYSTORE_PATH=$RUNNER_TEMP/PriceMonitor-Update-Key.p12" >> "$GITHUB_ENV"
+
+    - name: Build permanently signed release APK
+      if: ${{ env.PRICE_MONITOR_KEYSTORE_PASSWORD != '' }}
+      run: gradle assembleRelease
+
+    - name: Upload signed release APK for installation
+      if: ${{ env.PRICE_MONITOR_KEYSTORE_PASSWORD != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: PriceMonitor-SIGNED-RELEASE-APK
+        path: app/build/outputs/apk/release/app-release.apk
+        retention-days: 90
