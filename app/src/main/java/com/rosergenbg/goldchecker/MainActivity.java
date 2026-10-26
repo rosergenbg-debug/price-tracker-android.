@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
     private static final int GOLD = 0xFFECC46D;
     private static final int SILVER = 0xFFD4E3EB;
     private static final int WARNING = 0xFFFFC978;
-    private static final int[] GOLD_PURITY = {999, 986, 875, 835, 750, 585, 375, 333};
+    private static final int[] GOLD_PURITY = {999, 986, 750, 585, 375, 333};
     private static final int[] SILVER_PURITY = {999, 925, 900, 835, 800, 750};
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -80,6 +80,11 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         prefs = getSharedPreferences("prefs", MODE_PRIVATE);
+        // Remove data from retired gold rows once; silver 835 remains unchanged.
+        if (!prefs.getBoolean("gold_grade_cleanup_v112", false)) {
+            prefs.edit().remove("weight_g_875").remove("weight_g_835")
+                    .putBoolean("gold_grade_cleanup_v112", true).apply();
+        }
         german = prefs.getBoolean("language_de", true);
         currency = prefs.getString("currency", german ? "EUR" : "USD");
         unit = prefs.getString("weight_unit", "g");
