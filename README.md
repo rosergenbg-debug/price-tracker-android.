@@ -1,6 +1,6 @@
-# Gold & Silver Price Checker v1.1.0
+# Gold & Silver Price Checker v1.1.1
 
-Android app (`com.rosergenbg.goldchecker`, versionCode 2), no login or API key.
+Android app (`com.rosergenbg.goldchecker`, versionCode 3), no login or API key.
 
 ## Features
 - German (default) and English (DE/EN buttons at the top); GOLD / SILVER headings always English.
@@ -15,6 +15,13 @@ Android app (`com.rosergenbg.goldchecker`, versionCode 2), no login or API key.
 
 ## Build & update
 GitHub Actions `Build Gold & Silver Checker` builds debug and unsigned release APKs.
-For **seamless updates**, sign release APK with the original owner's **private v1.0.0 signing keystore**. Keystore MUST NOT be stored in the public project. Package `com.rosergenbg.goldchecker`, versionCode 2.
+For **seamless updates**, sign release APK with the original owner's **private v1.0.0 signing keystore**. Keystore MUST NOT be stored in the public project. Package `com.rosergenbg.goldchecker`, versionCode 3.
 
 This project is on a separate branch, never overwrite Price Monitor's main branch.
+## Direct Android download
+
+- [Download the signed updateable APK v1.1.1](releases/GoldSilverChecker-v1.1.1-SIGNED.apk)
+- This binary uses the same Android signing certificate as v1.0.0 and v1.1.0. Install over the previous version; do not uninstall first.
+- v1.1.1: decimal input accepts comma or dot, with decimal keyboard; version is displayed in the app; About / Report bug / PayPal support actions are available in DE and EN.
+- PayPal recipient email is a developer contact; donations work only if that email is associated with an eligible PayPal receiving account.
+- **Never commit the keystore/signing secret to this public repository.**
