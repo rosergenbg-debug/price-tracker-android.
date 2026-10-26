@@ -48,6 +48,19 @@ jobs:
           name: GoldSilverChecker-prototype-debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
+      - name: Prepare unsigned release for local secure signing
+        run: |
+          gradle --no-daemon assembleRelease
+          TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          "$TOOLS/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          cp "$TOOLS/lib/apksigner.jar" ./apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoldSilverChecker-unsigned-release-for-signing
+          path: |
+            aligned.apk
+            apksigner.jar
+          retention-days: 7
       - name: Sign release with owner-owned private key (optional)
         if: ${{ env.HAS_SIGNING == 'true' }}
         run: |
