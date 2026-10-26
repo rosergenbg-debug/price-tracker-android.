@@ -2,412 +2,523 @@ package com.rosergenbg.goldchecker;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.os.Bundle;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
-import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/** Gold & Silver Price Checker. German / English only, no keys, no backend. */
 public class MainActivity extends Activity {
-    private static final int BG = Color.rgb(8, 20, 17);
-    private static final int PANEL = Color.rgb(19, 43, 35);
-    private static final int BORDER = Color.rgb(40, 76, 60);
-    private static final int WHITE = Color.rgb(236, 247, 240);
-    private static final int MUTED = Color.rgb(151, 184, 163);
-    private static final int MINT = Color.rgb(122, 244, 182);
-    private static final int GOLD = Color.rgb(240, 197, 105);
-    private static final int SILVER = Color.rgb(206, 224, 228);
-    private static final int WARNING = Color.rgb(255, 189, 96);
-    private static final int[] GOLD_PURITY = {999, 986, 980, 960, 916, 900, 875, 835, 800, 750, 700, 625, 585, 583, 500, 417, 375, 333};
-    private static final int[] SILVER_PURITY = {999, 958, 950, 925, 900, 875, 835, 830, 800, 750, 625, 500};
+    private static final int BG = 0xFF081511;
+    private static final int PANEL = 0xFF14291F;
+    private static final int FIELD = 0xFF091B16;
+    private static final int BORDER = 0xFF305443;
+    private static final int WHITE = 0xFFE9F8ED;
+    private static final int MUTED = 0xFF9CB6A5;
+    private static final int MINT = 0xFF7FF0B3;
+    private static final int GOLD = 0xFFECC46D;
+    private static final int SILVER = 0xFFD4E3EB;
+    private static final int WARNING = 0xFFFFC978;
+    private static final int[] GOLD_PURITY = {999, 986, 875, 835, 750, 585, 375, 333};
+    private static final int[] SILVER_PURITY = {999, 925, 900, 835, 800, 750};
 
-    private SharedPreferences prefs;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final List<WeightRow> weights = new ArrayList<>();
+    private SharedPreferences prefs;
     private MarketData.Quote quote;
-    private boolean european;
-    private String selectedSource;
-    private double goldFraction;
-    private double silverFraction;
-    private Column goldColumn;
-    private Column silverColumn;
-    private TextView status;
-    private TextView result;
+    private boolean german;
+    private String currency;
+    private String unit;
+    private String source;
+    private double goldPayout;
+    private double silverPayout;
+    private TextView status, result, subtitle;
     private Button refreshButton;
-    private TextView settingsLabel;
+    private LinearLayout goldRows, silverRows;
     private boolean loading;
+    private long lastRefreshAttempt;
 
-    private static class Column {
+    private static class WeightRow {
         int purity;
-        int color;
-        boolean isGold;
-        LinearLayout rows;
-        EditText weight;
-        Column(int p, int c, boolean g) { purity = p; color = c; isGold = g; }
+        boolean gold;
+        EditText input;
+        TextView price;
+        String key() { return (gold ? "g_" : "s_") + purity; }
     }
 
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
+    @Override public void onCreate(Bundle saved) {
+        super.onCreate(saved);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         prefs = getSharedPreferences("prefs", MODE_PRIVATE);
-        european = prefs.getBoolean("european", true);
-        selectedSource = prefs.getString("source", "AUTO");
-        goldFraction = limit(prefs.getFloat("gold_payout", 0.85f));
-        silverFraction = limit(prefs.getFloat("silver_payout", 0.70f));
-        quote = new MarketData(prefs).cached(european);
-        buildScreen();
-        refreshPrices();
+        german = prefs.getBoolean("language_de", true);
+        currency = prefs.getString("currency", german ? "EUR" : "USD");
+        unit = prefs.getString("weight_unit", "g");
+        source = prefs.getString("source", "AUTO");
+        goldPayout = clamp(prefs.getFloat("payout_gold_v2", 0.983f));
+        silverPayout = clamp(prefs.getFloat("payout_silver_v2", 0.808f));
+        quote = new MarketData(prefs).cached();
+        draw();
+        refresh();
     }
 
-    private void buildScreen() {
-        ScrollView sc = new ScrollView(this);
-        sc.setFillViewport(true);
-        sc.setBackgroundColor(BG);
+    private String t(String de, String en) { return german ? de : en; }
+    private boolean euro() { return "EUR".equals(currency); }
+    private double gramsPerUnit() {
+        if ("oz".equals(unit)) return MetalMath.GRAMS_PER_TROY_OUNCE;
+        if ("dwt".equals(unit)) return MetalMath.GRAMS_PER_TROY_OUNCE / 20.0;
+        return 1.0;
+    }
+    private String symbol() { return euro() ? "€" : "$"; }
+    private Locale locale() { return german ? Locale.GERMANY : Locale.US; }
+
+    private void draw() {
+        weights.clear();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
         LinearLayout root = vertical();
-        root.setPadding(dp(14), dp(18), dp(14), dp(34));
-        sc.addView(root);
-        setContentView(sc);
+        root.setPadding(dp(10), dp(15), dp(10), dp(28));
+        scroll.addView(root);
+        setContentView(scroll);
 
         LinearLayout top = horizontal(Gravity.CENTER_VERTICAL);
-        LinearLayout headline = vertical();
-        TextView eyebrow = txt("PRECIOUS METALS  /  LIVE", 10, MINT, true);
-        headline.addView(eyebrow);
-        TextView title = txt("Gold & Silver", 29, WHITE, true);
-        headline.addView(title);
-        headline.addView(txt("PRICE CHECKER", 14, MUTED, true));
-        top.addView(headline, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        Button set = button("⚙", false);
-        set.setContentDescription("Настройки");
-        set.setOnClickListener(v -> showSettings());
-        top.addView(set, new LinearLayout.LayoutParams(dp(51), dp(48)));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_gold_silver);
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        logo.setBackground(round(PANEL, BORDER, 13));
+        top.addView(logo, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        LinearLayout heading = vertical();
+        TextView name = txt("Gold & Silver", 22, WHITE, true);
+        heading.addView(name);
+        heading.addView(txt("PRICE CHECKER", 11, MINT, true));
+        LinearLayout.LayoutParams head = new LinearLayout.LayoutParams(0, -2, 1);
+        head.setMargins(dp(9), 0, 0, 0);
+        top.addView(heading, head);
+        Button de = button("DE", true);
+        Button en = button("EN", true);
+        de.setBackground(round(german ? MINT : PANEL, BORDER, 10));
+        de.setTextColor(german ? BG : WHITE);
+        en.setBackground(round(!german ? MINT : PANEL, BORDER, 10));
+        en.setTextColor(!german ? BG : WHITE);
+        de.setOnClickListener(v -> switchLanguage(true));
+        en.setOnClickListener(v -> switchLanguage(false));
+        top.addView(de, new LinearLayout.LayoutParams(dp(42), dp(41)));
+        LinearLayout.LayoutParams englishLp = new LinearLayout.LayoutParams(dp(42), dp(41));
+        englishLp.setMargins(dp(4), 0, 0, 0);
+        top.addView(en, englishLp);
         root.addView(top);
 
-        status = txt("Подключение к котировкам...", 12, MUTED, false);
-        status.setPadding(dp(2), dp(14), dp(2), dp(10));
+        LinearLayout toolbar = horizontal(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(0, dp(14), 0, dp(7));
+        subtitle = txt("", 11, MUTED, false);
+        toolbar.addView(subtitle, new LinearLayout.LayoutParams(0, -2, 1));
+        Button options = button("⚙ " + t("Optionen", "Options"), true);
+        options.setOnClickListener(v -> settings());
+        toolbar.addView(options);
+        root.addView(toolbar);
+        updateSubtitle();
+
+        status = txt(t("Kurse werden geladen …", "Loading prices …"), 11, MUTED, false);
+        status.setPadding(dp(3), dp(2), dp(3), dp(10));
         root.addView(status);
-        LinearLayout tools = horizontal(Gravity.CENTER_VERTICAL);
-        settingsLabel = txt("", 12, MUTED, false);
-        tools.addView(settingsLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        refreshButton = button("↻ Обновить", true);
-        refreshButton.setOnClickListener(v -> refreshPrices());
-        tools.addView(refreshButton);
-        root.addView(tools);
-        updateSettingsText();
 
-        TextView helper = txt("Выбери пробу · Введи вес · Посчитай стоимость", 12, MUTED, false);
-        helper.setPadding(0, dp(17), 0, dp(10));
-        root.addView(helper);
+        LinearLayout guide = horizontal(Gravity.CENTER_VERTICAL);
+        TextView instruction = txt(t("Gewicht je Feinheit eingeben", "Enter weight for each fineness"), 12, MUTED, false);
+        guide.addView(instruction, new LinearLayout.LayoutParams(0, -2, 1));
+        refreshButton = button("↻", true);
+        refreshButton.setContentDescription(t("Kurse aktualisieren", "Refresh prices"));
+        refreshButton.setOnClickListener(v -> refresh());
+        guide.addView(refreshButton, new LinearLayout.LayoutParams(dp(44), dp(38)));
+        root.addView(guide);
 
-        LinearLayout columns = horizontal(Gravity.TOP);
-        goldColumn = buildColumn(true);
-        silverColumn = buildColumn(false);
-        LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        left.setMargins(0, 0, dp(5), 0);
-        LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        right.setMargins(dp(5), 0, 0, 0);
-        columns.addView((View) goldColumn.rows.getParent(), left);
-        columns.addView((View) silverColumn.rows.getParent(), right);
-        root.addView(columns);
+        LinearLayout cols = horizontal(Gravity.TOP);
+        LinearLayout goldPanel = buildMetal(true);
+        LinearLayout silverPanel = buildMetal(false);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(0, -2, 1);
+        gp.setMargins(0, 0, dp(4), 0);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, -2, 1);
+        sp.setMargins(dp(4), 0, 0, 0);
+        cols.addView(goldPanel, gp);
+        cols.addView(silverPanel, sp);
+        root.addView(cols);
 
         LinearLayout actions = horizontal(Gravity.CENTER_VERTICAL);
-        actions.setPadding(0, dp(16), 0, dp(8));
-        Button calculate = button("ПОСЧИТАТЬ", false);
-        calculate.setBackground(round(MINT, MINT, 15));
+        actions.setPadding(0, dp(14), 0, dp(10));
+        Button calculate = button(t("BERECHNEN", "CALCULATE"), false);
+        calculate.setBackground(round(MINT, MINT, 13));
         calculate.setTextColor(BG);
         calculate.setOnClickListener(v -> calculate());
-        actions.addView(calculate, new LinearLayout.LayoutParams(0, dp(56), 1));
-        result = txt("Результат появится здесь", 15, WHITE, true);
-        result.setPadding(dp(14), dp(13), dp(12), dp(13));
-        result.setBackground(round(PANEL, BORDER, 15));
-        LinearLayout.LayoutParams out = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f);
-        out.setMargins(dp(10), 0, 0, 0);
-        actions.addView(result, out);
+        actions.addView(calculate, new LinearLayout.LayoutParams(0, dp(51), 1.5f));
+        Button clear = button(t("ZURÜCKSETZEN", "RESET"), true);
+        clear.setOnClickListener(v -> clearRows());
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(51), 1.1f);
+        cp.setMargins(dp(8), 0, 0, 0);
+        actions.addView(clear, cp);
         root.addView(actions);
 
-        TextView disclaimer = txt("Максимум = стоимость чистого металла по биржевой котировке. Выкуп = приблизительный расчёт, не предложение скупщика. Реальная цена зависит от пробирной проверки, комиссии и магазина.", 11, MUTED, false);
-        disclaimer.setPadding(dp(5), dp(10), dp(5), dp(12));
-        root.addView(disclaimer);
-        TextView credit = txt("Данные: Gold API · XAUS · Frankfurter  •  Без ключей и регистрации", 10, MUTED, false);
-        root.addView(credit);
-        renderRows(goldColumn);
-        renderRows(silverColumn);
+        LinearLayout totalPanel = vertical();
+        totalPanel.setPadding(dp(13), dp(12), dp(13), dp(12));
+        totalPanel.setBackground(round(PANEL, BORDER, 14));
+        TextView resultTitle = txt(t("GESAMTERGEBNIS", "TOTAL RESULT"), 12, MINT, true);
+        totalPanel.addView(resultTitle);
+        result = txt(t("Gewicht eintragen und berechnen.", "Enter weight and calculate."), 14, WHITE, false);
+        result.setPadding(0, dp(9), 0, dp(2));
+        totalPanel.addView(result);
+        root.addView(totalPanel);
+
+        TextView note = txt(t("Materialwert = Feingehalt × aktueller Spotkurs. Ankauf = unverbindliche Schätzung, orientiert an veröffentlichten Heubach-Preisen vom 26.10.2026 (Au 98,3 %, Ag 80,8 %). Keine Live-Ankaufsofferte. Preise und Feingehalt vor dem Verkauf prüfen.",
+                "Material value = fineness × current spot price. Dealer estimate is based on published Heubach prices from 26 Oct 2026 (Au 98.3%, Ag 80.8%). This is not a live dealer offer. Verify prices and purity before selling."), 10, MUTED, false);
+        note.setPadding(dp(3), dp(12), dp(3), dp(7));
+        root.addView(note);
+        root.addView(txt(t("Quellen: Gold API / XAUS · ohne Anmeldung", "Sources: Gold API / XAUS · no signup"), 10, MUTED, false));
+        updateRows();
+        updateStatus();
     }
 
-    /** Parent column is attached temporarily to a tag-free holding LinearLayout. */
-    private Column buildColumn(boolean isGold) {
-        Column c = new Column(isGold ? prefs.getInt("gold_purity", 585) : prefs.getInt("silver_purity", 925),
-                isGold ? GOLD : SILVER, isGold);
-        LinearLayout shell = vertical();
-        shell.setBackground(round(PANEL, BORDER, 18));
-        shell.setPadding(dp(7), dp(10), dp(7), dp(12));
+    private LinearLayout buildMetal(boolean gold) {
+        LinearLayout panel = vertical();
+        panel.setPadding(dp(5), dp(9), dp(5), dp(10));
+        panel.setBackground(round(PANEL, BORDER, 14));
+        LinearLayout banner = horizontal(Gravity.CENTER_VERTICAL);
+        ImageView symbol = new ImageView(this);
+        symbol.setImageResource(gold ? R.drawable.gold : R.drawable.silver);
+        symbol.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        banner.addView(symbol, new LinearLayout.LayoutParams(dp(34), dp(30)));
+        TextView heading = txt(gold ? "GOLD" : "SILVER", 15, gold ? GOLD : SILVER, true);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-2, -2);
+        hlp.setMargins(dp(4), 0, 0, 0);
+        banner.addView(heading, hlp);
+        panel.addView(banner);
 
-        ImageView image = new ImageView(this);
-        image.setImageResource(isGold ? R.drawable.gold : R.drawable.silver);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(dp(52), dp(44));
-        imageParams.gravity = Gravity.CENTER_HORIZONTAL;
-        shell.addView(image, imageParams);
-        TextView label = txt(isGold ? "ЗОЛОТО" : "СЕРЕБРО", 15, c.color, true);
-        label.setGravity(Gravity.CENTER);
-        shell.addView(label);
-        TextView colHint = txt("Проба    Цена / ед.", 10, MUTED, false);
-        colHint.setGravity(Gravity.CENTER);
-        colHint.setPadding(0, dp(9), 0, dp(5));
-        shell.addView(colHint);
+        LinearLayout head = horizontal(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(2), dp(11), dp(1), dp(7));
+        TextView purity = txt(t("Probe", "Fineness"), 9, MUTED, false);
+        head.addView(purity, new LinearLayout.LayoutParams(dp(38), -2));
+        TextView weightHeader = txt(t("Menge", "Weight"), 9, MUTED, false);
+        weightHeader.setGravity(Gravity.CENTER);
+        head.addView(weightHeader, new LinearLayout.LayoutParams(dp(58), -2));
+        TextView price = txt(symbol() + "/" + unit, 9, MUTED, false);
+        price.setGravity(Gravity.END);
+        head.addView(price, new LinearLayout.LayoutParams(0, -2, 1));
+        panel.addView(head);
 
-        c.rows = vertical();
-        shell.addView(c.rows);
-        TextView weightLabel = txt("ВЕС (" + (european ? "г" : "oz t") + ")", 10, c.color, true);
-        weightLabel.setGravity(Gravity.CENTER);
-        weightLabel.setPadding(0, dp(12), 0, dp(5));
-        shell.addView(weightLabel);
-        c.weight = new EditText(this);
-        c.weight.setSingleLine(true);
-        c.weight.setTextSize(18);
-        c.weight.setTextColor(WHITE);
-        c.weight.setHintTextColor(MUTED);
-        c.weight.setHint("0,00");
-        c.weight.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
-        c.weight.setPadding(dp(8), dp(6), dp(8), dp(6));
-        c.weight.setGravity(Gravity.CENTER);
-        c.weight.setBackground(round(BG, BORDER, 10));
-        c.weight.setText(prefs.getString(isGold ? "gold_weight" : "silver_weight", ""));
-        c.weight.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int a, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                prefs.edit().putString(c.isGold ? "gold_weight" : "silver_weight", s.toString()).apply();
-            }
-            @Override public void afterTextChanged(android.text.Editable e) {}
-        });
-        shell.addView(c.weight, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-        // Allows columns to be assembled after both have been created.
-        return c;
-    }
-
-    private void renderRows(Column c) {
-        c.rows.removeAllViews();
-        int[] purities = c.isGold ? GOLD_PURITY : SILVER_PURITY;
+        LinearLayout rows = vertical();
+        int[] purities = gold ? GOLD_PURITY : SILVER_PURITY;
         for (int p : purities) {
-            final int purity = p;
-            boolean checked = c.purity == p;
-            LinearLayout row = horizontal(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(4), dp(9), dp(4), dp(9));
-            row.setBackground(round(checked ? 0xFF284C38 : PANEL, checked ? c.color : BORDER, 9));
-            TextView fineness = txt(String.valueOf(p), 13, checked ? c.color : WHITE, true);
-            row.addView(fineness, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.8f));
-            String cost = "—";
-            if (quote != null) {
-                double usdOz = c.isGold ? quote.goldUsdOz : quote.silverUsdOz;
-                double v = MetalMath.spotValue(usdOz, quote.usdToEur, european, p, 1);
-                cost = format(v, c.isGold ? 2 : 3);
-            }
-            TextView price = txt(cost, 11, checked ? WHITE : MUTED, checked);
-            price.setGravity(Gravity.END);
-            row.addView(price, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f));
-            row.setOnClickListener(v -> {
-                c.purity = purity;
-                prefs.edit().putInt(c.isGold ? "gold_purity" : "silver_purity", purity).apply();
-                renderRows(c);
+            WeightRow entry = new WeightRow();
+            entry.purity = p;
+            entry.gold = gold;
+            LinearLayout line = horizontal(Gravity.CENTER_VERTICAL);
+            line.setPadding(dp(3), dp(5), dp(3), dp(5));
+            line.setBackground(round(FIELD, BORDER, 8));
+            TextView grade = txt(Integer.toString(p), 11, gold ? GOLD : SILVER, true);
+            line.addView(grade, new LinearLayout.LayoutParams(dp(35), -2));
+            EditText input = new EditText(this);
+            input.setSingleLine(true);
+            input.setSelectAllOnFocus(false);
+            input.setTextSize(12);
+            input.setTextColor(WHITE);
+            input.setHintTextColor(MUTED);
+            input.setHint("0");
+            input.setGravity(Gravity.CENTER);
+            input.setPadding(dp(2), 0, dp(2), 0);
+            input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            input.setBackground(round(PANEL, BORDER, 6));
+            input.setText(prefs.getString("weight_" + entry.key(), ""));
+            input.addTextChangedListener(new TextWatcher() {
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    prefs.edit().putString("weight_" + entry.key(), s.toString()).apply();
+                }
+                public void afterTextChanged(Editable e) {}
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(2), 0, dp(2));
-            c.rows.addView(row, lp);
+            entry.input = input;
+            line.addView(input, new LinearLayout.LayoutParams(dp(59), dp(38)));
+            entry.price = txt("—", gold ? 10 : 10, MUTED, true);
+            entry.price.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams priceLp = new LinearLayout.LayoutParams(0, dp(38), 1);
+            priceLp.setMargins(dp(2), 0, 0, 0);
+            line.addView(entry.price, priceLp);
+            LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(-1, -2);
+            lineLp.setMargins(0, 0, 0, dp(4));
+            rows.addView(line, lineLp);
+            weights.add(entry);
         }
+        panel.addView(rows);
+        if (gold) goldRows = rows; else silverRows = rows;
+        return panel;
     }
 
-    private void refreshPrices() {
-        if (loading) return;
-        loading = true;
-        refreshButton.setEnabled(false);
-        status.setText("Обновляем данные из открытых источников…");
-        final boolean eu = european;
-        final String source = selectedSource;
-        io.execute(() -> {
-            MarketData.Quote got = null;
-            String error = null;
-            try { got = new MarketData(prefs).load(source, eu); }
-            catch (Exception e) { error = e.getMessage(); }
-            final MarketData.Quote ready = got;
-            final String message = error;
-            runOnUiThread(() -> {
-                loading = false;
-                refreshButton.setEnabled(true);
-                if (eu != european || !source.equals(selectedSource)) {
-                    refreshPrices();
-                    return;
-                }
-                if (ready != null) quote = ready;
-                if (quote != null) {
-                    String when = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(new Date(quote.timestamp));
-                    String flag = quote.offline ? " • НЕТ СВЯЗИ / СТАРЫЕ ДАННЫЕ" :
-                            quote.stale ? " • УСТАРЕВШАЯ КОТИРОВКА" : " • онлайн";
-                    String fx = quote.staleFx && european ? " • курс EUR устарел" : "";
-                    status.setText("Источник: " + quote.provider + " • " + when + flag + fx);
-                    status.setTextColor(quote.offline || quote.stale || quote.staleFx ? WARNING : MINT);
-                    renderRows(goldColumn);
-                    renderRows(silverColumn);
-                } else {
-                    status.setText("Нет котировок. " + (message == null ? "Проверь интернет." : message));
-                    status.setTextColor(WARNING);
-                }
-            });
-        });
+    private void switchLanguage(boolean de) {
+        if (german == de) return;
+        german = de;
+        SharedPreferences.Editor e = prefs.edit().putBoolean("language_de", de);
+        // Language supplies a default currency only until the user explicitly chooses one.
+        if (!prefs.getBoolean("currency_custom", false)) {
+            currency = de ? "EUR" : "USD";
+            e.putString("currency", currency);
+        }
+        e.apply();
+        draw();
     }
 
-    private void calculate() {
-        if (quote == null) { toast("Нет цены металла — нажми «Обновить»"); return; }
-        double goldWeight;
-        double silverWeight;
-        try {
-            goldWeight = parseWeight(goldColumn.weight.getText().toString());
-            silverWeight = parseWeight(silverColumn.weight.getText().toString());
-        } catch (Exception ex) { toast("Введи корректный положительный вес, например 12,5"); return; }
-        if (goldWeight == 0 && silverWeight == 0) { toast("Укажи вес золота или серебра"); return; }
-        double g = MetalMath.spotValue(quote.goldUsdOz, quote.usdToEur, european, goldColumn.purity, goldWeight);
-        double s = MetalMath.spotValue(quote.silverUsdOz, quote.usdToEur, european, silverColumn.purity, silverWeight);
-        double bid = MetalMath.indicativePayout(g, goldFraction) + MetalMath.indicativePayout(s, silverFraction);
-        String currency = european ? "€" : "$";
-        StringBuilder b = new StringBuilder();
-        if (goldWeight > 0) b.append("Au ").append(goldColumn.purity).append(": ").append(currency).append(format(g, 2)).append("\n");
-        if (silverWeight > 0) b.append("Ag ").append(silverColumn.purity).append(": ").append(currency).append(format(s, 2)).append("\n");
-        b.append("МАКС. ").append(currency).append(format(g + s, 2));
-        b.append("\nСКУПКА ≈ ").append(currency).append(format(bid, 2));
-        if (quote.offline || quote.stale) b.append("\n⚠ Старая котировка");
-        result.setText(b.toString());
-        ((InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(result.getWindowToken(), 0);
-        result.requestFocus();
-    }
-
-    private void showSettings() {
-        String[] opts = {
-                "Единицы: " + (european ? "Европа — EUR / грамм" : "США — USD / тройская унция"),
-                "Источник: " + ("AUTO".equals(selectedSource) ? "Авто: Gold API → XAUS" : selectedSource),
-                "Скупка Au: " + Math.round(goldFraction * 100) + "% от биржевой цены",
-                "Скупка Ag: " + Math.round(silverFraction * 100) + "% от биржевой цены"
+    private void settings() {
+        String[] options = {
+            t("Währung: ", "Currency: ") + currency,
+            t("Gewichtseinheit: ", "Weight unit: ") + unit,
+            t("Kursquelle: ", "Price source: ") + ("AUTO".equals(source) ? "Gold API → XAUS" : source),
+            t("Gold Ankaufquote: ", "Gold payout ratio: ") + pct(goldPayout),
+            t("Silber Ankaufquote: ", "Silver payout ratio: ") + pct(silverPayout)
         };
-        new AlertDialog.Builder(this).setTitle("Настройки").setItems(opts, (d, which) -> {
-            if (which == 0) new AlertDialog.Builder(this).setTitle("Система измерения")
-                    .setSingleChoiceItems(new String[]{"Европа: евро, граммы", "США: доллары, тройские унции"}, european ? 0 : 1,
-                            (dlg, n) -> {
-                                boolean before = european;
-                                european = n == 0;
-                                prefs.edit().putBoolean("european", european).apply();
-                                dlg.dismiss();
-                                if (before != european) {
-                                    // Old input weight is not silently reinterpreted as a different unit.
-                                    goldColumn.weight.setText("");
-                                    silverColumn.weight.setText("");
-                                    quote = new MarketData(prefs).cached(european);
-                                    buildScreen();
-                                    refreshPrices();
-                                }
-                            }).setNegativeButton("Отмена", null).show();
-            else if (which == 1) new AlertDialog.Builder(this).setTitle("Источник котировок")
-                    .setSingleChoiceItems(new String[]{"Автоматически (Gold API → XAUS)", "Gold API", "XAUS"},
-                            "AUTO".equals(selectedSource) ? 0 : "GOLD".equals(selectedSource) ? 1 : 2,
-                            (dlg, n) -> {
-                                selectedSource = n == 0 ? "AUTO" : n == 1 ? "GOLD" : "XAUS";
-                                prefs.edit().putString("source", selectedSource).apply();
-                                dlg.dismiss();
-                                updateSettingsText();
-                                refreshPrices();
-                            }).setNegativeButton("Отмена", null).show();
-            else editPayout(which == 2);
-        }).setNegativeButton("Закрыть", null).show();
+        new AlertDialog.Builder(this).setTitle(t("Einstellungen", "Settings")).setItems(options, (dlg, n) -> {
+            if (n == 0) chooseCurrency();
+            else if (n == 1) chooseUnit();
+            else if (n == 2) chooseSource();
+            else changePayout(n == 3);
+        }).setNegativeButton(t("Schließen", "Close"), null).show();
     }
 
-    private void editPayout(boolean gold) {
+    private void chooseCurrency() {
+        new AlertDialog.Builder(this).setTitle(t("Währung", "Currency"))
+            .setSingleChoiceItems(new String[]{"EUR (€)", "USD ($)"}, euro() ? 0 : 1, (dialog, n) -> {
+                currency = n == 0 ? "EUR" : "USD";
+                prefs.edit().putString("currency", currency).putBoolean("currency_custom", true).apply();
+                dialog.dismiss();
+                draw();
+                if (quote == null || quote.usdToEur <= 0) refresh();
+            }).setNegativeButton(t("Abbrechen", "Cancel"), null).show();
+    }
+
+    private void chooseUnit() {
+        String[] choices = {t("Gramm (g)", "Grams (g)"), t("Feinunze (oz t)", "Troy ounces (oz t)"), t("Pennyweight (dwt)", "Pennyweight (dwt)")};
+        int selected = "oz".equals(unit) ? 1 : "dwt".equals(unit) ? 2 : 0;
+        new AlertDialog.Builder(this).setTitle(t("Gewichtseinheit", "Weight unit"))
+            .setSingleChoiceItems(choices, selected, (dialog, n) -> {
+                String next = n == 0 ? "g" : n == 1 ? "oz" : "dwt";
+                if (!next.equals(unit)) {
+                    double oldGrams = gramsPerUnit();
+                    double newGrams = "oz".equals(next) ? MetalMath.GRAMS_PER_TROY_OUNCE : "dwt".equals(next) ? MetalMath.GRAMS_PER_TROY_OUNCE / 20.0 : 1.0;
+                    SharedPreferences.Editor editor = prefs.edit();
+                    for (WeightRow row : weights) {
+                        String raw = row.input.getText().toString().trim();
+                        if (!raw.isEmpty()) {
+                            try { editor.putString("weight_" + row.key(), decimal(parseWeight(raw) * oldGrams / newGrams, 5)); }
+                            catch (Exception e) { editor.putString("weight_" + row.key(), ""); }
+                        }
+                    }
+                    unit = next;
+                    editor.putString("weight_unit", unit).apply();
+                    draw();
+                }
+                dialog.dismiss();
+            }).setNegativeButton(t("Abbrechen", "Cancel"), null).show();
+    }
+
+    private void chooseSource() {
+        int chosen = "XAUS".equals(source) ? 2 : "GOLD".equals(source) ? 1 : 0;
+        String[] labels = {t("Automatisch: Gold API → XAUS", "Automatic: Gold API → XAUS"), "Gold API", "XAUS"};
+        new AlertDialog.Builder(this).setTitle(t("Kursquelle", "Price source"))
+            .setSingleChoiceItems(labels, chosen, (dialog, n) -> {
+                source = n == 0 ? "AUTO" : n == 1 ? "GOLD" : "XAUS";
+                prefs.edit().putString("source", source).apply();
+                dialog.dismiss();
+                updateSubtitle();
+                refreshForce();
+            }).setNegativeButton(t("Abbrechen", "Cancel"), null).show();
+    }
+
+    private void changePayout(boolean gold) {
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setText(String.valueOf(Math.round((gold ? goldFraction : silverFraction) * 100)));
-        input.setPadding(dp(18), dp(10), dp(18), dp(10));
-        new AlertDialog.Builder(this).setTitle("Доля выплаты скупщика, %")
-                .setMessage("Приблизительная скидка к стоимости чистого металла. Это не реальная котировка конкретной скупки.")
-                .setView(input).setPositiveButton("Сохранить", (dlg, n) -> {
-                    try {
-                        double percent = Double.parseDouble(input.getText().toString().replace(',', '.'));
-                        if (percent < 0 || percent > 100 || !Double.isFinite(percent)) throw new NumberFormatException();
-                        if (gold) { goldFraction = percent / 100; prefs.edit().putFloat("gold_payout", (float) goldFraction).apply(); }
-                        else { silverFraction = percent / 100; prefs.edit().putFloat("silver_payout", (float) silverFraction).apply(); }
-                        toast("Процент сохранён. Нажми «Посчитать» снова.");
-                    } catch (NumberFormatException ex) { toast("Допустимо только от 0 до 100%"); }
-                }).setNegativeButton("Отмена", null).show();
+        input.setText(decimal((gold ? goldPayout : silverPayout) * 100, 1));
+        input.setPadding(dp(20), dp(10), dp(20), dp(10));
+        new AlertDialog.Builder(this).setTitle(t("Ankaufquote in %", "Estimated dealer payout in %"))
+            .setMessage(t("Anteil am reinen Materialwert. Richtwert, kein verbindliches Angebot.", "Share of spot material value. Estimate, not a binding offer."))
+            .setView(input).setPositiveButton(t("Speichern", "Save"), (d, n) -> {
+                try {
+                    double rate = parseWeight(input.getText().toString()) / 100.0;
+                    if (rate < 0 || rate > 1) throw new NumberFormatException();
+                    if (gold) { goldPayout = rate; prefs.edit().putFloat("payout_gold_v2", (float) rate).apply(); }
+                    else { silverPayout = rate; prefs.edit().putFloat("payout_silver_v2", (float) rate).apply(); }
+                    toast(t("Ankaufquote gespeichert", "Payout ratio saved"));
+                    calculateIfAny();
+                } catch (Exception ex) { toast(t("Zahl zwischen 0 und 100 eingeben", "Enter a value between 0 and 100")); }
+            }).setNegativeButton(t("Abbrechen", "Cancel"), null).show();
     }
 
-    private void updateSettingsText() {
-        settingsLabel.setText((european ? "🇪🇺 EUR · г" : "🇺🇸 USD · oz t") + "   |   " +
-                ("AUTO".equals(selectedSource) ? "Gold API → XAUS" : selectedSource));
+    private void refresh() { refreshInternal(false); }
+    private void refreshForce() { refreshInternal(true); }
+    private void refreshInternal(boolean force) {
+        if (loading) return;
+        long now = System.currentTimeMillis();
+        if (!force && now - lastRefreshAttempt < 30_000L && quote != null) {
+            updateStatus();
+            return;
+        }
+        lastRefreshAttempt = now;
+        loading = true;
+        refreshButton.setEnabled(false);
+        status.setText(t("Kurse werden aktualisiert …", "Updating prices …"));
+        final String chosen = source;
+        io.execute(() -> {
+            MarketData.Quote incoming = null;
+            try { incoming = new MarketData(prefs).load(chosen); } catch (Exception ignored) { }
+            final MarketData.Quote ready = incoming;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                loading = false;
+                refreshButton.setEnabled(true);
+                if (!source.equals(chosen)) { refreshForce(); return; }
+                if (ready != null) quote = ready;
+                updateStatus();
+                updateRows();
+                calculateIfAny();
+            });
+        });
     }
-    private static double parseWeight(String input) {
-        String normalized = input.trim().replace(" ", "").replace("\u00a0", "").replace(',', '.');
-        if (normalized.isEmpty()) return 0;
-        double value = Double.parseDouble(normalized);
-        if (!Double.isFinite(value) || value < 0 || value > 1e9) throw new NumberFormatException();
-        return value;
+
+    private void updateStatus() {
+        if (status == null) return;
+        if (quote == null) {
+            status.setText(t("Keine Kurse verfügbar. Internet prüfen.", "No quote available. Check internet."));
+            status.setTextColor(WARNING);
+            return;
+        }
+        String when = new SimpleDateFormat("dd.MM.yyyy HH:mm", locale()).format(new Date(quote.timestamp));
+        boolean old = quote.stale || quote.offline || System.currentTimeMillis() - quote.timestamp > 15 * 60_000L;
+        String suffix = old ? t(" · VERALTET / OFFLINE", " · STALE / OFFLINE") : t(" · Aktuell", " · Live");
+        if (quote.staleFx && euro()) suffix += t(" · Währungskurs alt", " · FX rate stale");
+        status.setText(quote.provider + " · " + when + suffix);
+        status.setTextColor(old || (quote.staleFx && euro()) ? WARNING : MINT);
     }
-    private static double limit(double value) { return Math.max(0, Math.min(1, value)); }
-    private String format(double value, int precision) {
-        NumberFormat nf = NumberFormat.getNumberInstance(european ? Locale.GERMANY : Locale.US);
-        nf.setMinimumFractionDigits(precision);
-        nf.setMaximumFractionDigits(precision);
-        return nf.format(value);
+
+    private void updateSubtitle() {
+        if (subtitle != null) subtitle.setText(currency + " · " + unit + "  |  " + ("AUTO".equals(source) ? "Gold API → XAUS" : source));
     }
-    private void toast(String s) { android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show(); }
+
+    private void updateRows() {
+        for (WeightRow row : weights) {
+            if (quote == null) { row.price.setText("—"); continue; }
+            double ozPrice = row.gold ? quote.goldUsdOz : quote.silverUsdOz;
+            double unitPrice = ozPrice / MetalMath.GRAMS_PER_TROY_OUNCE * gramsPerUnit() * (row.purity / 1000.0) * (euro() ? quote.usdToEur : 1.0);
+            row.price.setText(decimal(unitPrice, row.gold ? 2 : ("g".equals(unit) ? 3 : 2)));
+        }
+    }
+
+    private void calculateIfAny() {
+        for (WeightRow row : weights) {
+            if (!row.input.getText().toString().trim().isEmpty()) {
+                try { if (parseWeight(row.input.getText().toString()) > 0) { calculate(); return; } }
+                catch (Exception ignored) { return; }
+            }
+        }
+    }
+
+    private void calculate() {
+        if (quote == null || quote.usdToEur <= 0) { toast(t("Bitte zuerst Kurse laden", "Please load prices first")); return; }
+        double goldSpot = 0, silverSpot = 0, goldWeight = 0, silverWeight = 0;
+        int count = 0;
+        for (WeightRow row : weights) {
+            double amount;
+            try { amount = parseWeight(row.input.getText().toString()); }
+            catch (Exception e) { toast(t("Ungültiges Gewicht bei Probe ", "Invalid weight at fineness ") + row.purity); return; }
+            if (amount <= 0) continue;
+            count++;
+            double value = MetalMath.spotValue(row.gold ? quote.goldUsdOz : quote.silverUsdOz,
+                    quote.usdToEur, euro(), row.purity, amount * gramsPerUnit());
+            if (row.gold) { goldSpot += value; goldWeight += amount; }
+            else { silverSpot += value; silverWeight += amount; }
+        }
+        if (count == 0) { result.setText(t("Gewicht eintragen und berechnen.", "Enter weight and calculate.")); return; }
+        double spot = goldSpot + silverSpot;
+        double payout = goldSpot * goldPayout + silverSpot * silverPayout;
+        String s = symbol();
+        StringBuilder lines = new StringBuilder();
+        if (goldWeight > 0) lines.append("GOLD · ").append(decimal(goldWeight, 3)).append(" ").append(unit)
+                .append(" · ").append(s).append(decimal(goldSpot, 2)).append("\n");
+        if (silverWeight > 0) lines.append("SILVER · ").append(decimal(silverWeight, 3)).append(" ").append(unit)
+                .append(" · ").append(s).append(decimal(silverSpot, 2)).append("\n");
+        lines.append(t("Materialwert gesamt: ", "Total spot value: ")).append(s).append(decimal(spot, 2));
+        lines.append("\n").append(t("Ankauf geschätzt: ", "Est. dealer payout: ")).append(s).append(decimal(payout, 2));
+        lines.append("\n").append(t("Abschlag: ", "Deduction: ")).append(s).append(decimal(spot - payout, 2));
+        if (quote.offline || quote.stale || System.currentTimeMillis() - quote.timestamp > 15 * 60_000L)
+            lines.append("\n⚠ ").append(t("Veraltete Kursdaten", "Stale market data"));
+        result.setText(lines.toString());
+        View focused = getCurrentFocus();
+        if (focused != null) {
+            ((InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(focused.getWindowToken(), 0);
+            focused.clearFocus();
+        }
+    }
+
+    private void clearRows() {
+        SharedPreferences.Editor e = prefs.edit();
+        for (WeightRow row : weights) {
+            row.input.setText("");
+            e.remove("weight_" + row.key());
+        }
+        e.apply();
+        result.setText(t("Gewicht eintragen und berechnen.", "Enter weight and calculate."));
+        toast(t("Alle Eingaben zurückgesetzt", "All weights cleared"));
+    }
+
+    private static double parseWeight(String s) {
+        String text = s.trim().replace(" ", "").replace("\u00a0", "").replace(',', '.');
+        if (text.isEmpty()) return 0.0;
+        double weight = Double.parseDouble(text);
+        if (!Double.isFinite(weight) || weight < 0 || weight > 1000000000) throw new NumberFormatException();
+        return weight;
+    }
+    private static double clamp(double n) { return Math.max(0, Math.min(1, n)); }
+    private String pct(double rate) { return decimal(rate * 100, 1) + "%"; }
+    private String decimal(double number, int places) {
+        NumberFormat f = NumberFormat.getNumberInstance(locale());
+        f.setGroupingUsed(false);
+        f.setMinimumFractionDigits(places);
+        f.setMaximumFractionDigits(places);
+        return f.format(number);
+    }
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
     private int dp(float n) { return Math.round(n * getResources().getDisplayMetrics().density); }
-    private LinearLayout vertical() {
-        LinearLayout v = new LinearLayout(this);
-        v.setOrientation(LinearLayout.VERTICAL);
-        return v;
+    private LinearLayout vertical() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
+    private LinearLayout horizontal(int gravity) { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.HORIZONTAL); v.setGravity(gravity); return v; }
+    private TextView txt(String value, int size, int color, boolean bold) {
+        TextView v = new TextView(this); v.setText(value); v.setTextSize(size); v.setTextColor(color);
+        if (bold) v.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return v;
     }
-    private LinearLayout horizontal(int align) {
-        LinearLayout v = new LinearLayout(this);
-        v.setOrientation(LinearLayout.HORIZONTAL);
-        v.setGravity(align);
-        return v;
+    private Button button(String value, boolean small) {
+        Button v = new Button(this); v.setText(value); v.setAllCaps(false); v.setTextColor(WHITE);
+        v.setTextSize(small ? 11 : 14); v.setPadding(dp(4), 0, dp(4), 0);
+        v.setBackground(round(PANEL, BORDER, 11)); return v;
     }
-    private TextView txt(String s, int size, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(size);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
+    private GradientDrawable round(int fill, int stroke, int radius) {
+        GradientDrawable b = new GradientDrawable(); b.setColor(fill); b.setCornerRadius(dp(radius)); b.setStroke(dp(1), stroke); return b;
     }
-    private Button button(String name, boolean small) {
-        Button v = new Button(this);
-        v.setAllCaps(false);
-        v.setText(name);
-        v.setTextSize(small ? 12 : 14);
-        v.setTextColor(WHITE);
-        v.setPadding(dp(6), 0, dp(6), 0);
-        v.setBackground(round(PANEL, BORDER, 12));
-        return v;
-    }
-    private GradientDrawable round(int fill, int outline, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(fill);
-        d.setCornerRadius(dp(radius));
-        d.setStroke(dp(1), outline);
-        return d;
-    }
-    @Override protected void onDestroy() { super.onDestroy(); io.shutdownNow(); }
+    @Override protected void onDestroy() { io.shutdownNow(); super.onDestroy(); }
 }
