@@ -38,7 +38,7 @@ observations and are not silently filled with invented prices.
 
 See [.github/signing/SIGNING.md](.github/signing/SIGNING.md) for the permanent
 signing key fingerprint and recovery location. The signing key and password are
-privately backed up on Google Drive; only a password-protected copy of the
+privately backed up in a dedicated `PriceMonitor-Signing-Backup` Google Drive folder; only a password-protected copy of the
 keystore is kept in this public repository.
 
 Warning: v3.3 APK uses an earlier temporary debug signature. Switching to
