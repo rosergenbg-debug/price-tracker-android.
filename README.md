@@ -1,35 +1,26 @@
-# Gold & Silver Price Checker v1.1.2
+# Gold & Silver Price Checker — v1.2.0
 
-Android app (`com.rosergenbg.goldchecker`, versionCode 4), no login or API key.
+Android (`com.rosergenbg.goldchecker`, versionCode 5). Keyless, ad-free, no registration and no custom backend.
 
-## Features
-- German (default) and English (DE/EN buttons at the top); GOLD / SILVER headings always English.
-- Gold: 999, 986, 750, 585, 375, 333.
-- Silver: 999, 925, 900, 835, 800, 750.
-- Weights for **every** fineness row, supports `12,5` and `12.5`, sum gold and silver together.
-- Separate display language, currency (EUR / USD), and weight (g / troy oz / dwt) options. Default DE/EUR/g; EN/USD/g unless user explicitly overrides currency.
-- Each-row spot material price; all-metal spot total, indicative dealer payout, and difference. Reset removes all entered weights.
-- Baseline indicative payout ratios: gold 98.3% and silver 80.8%, **estimates** calibrated to publicly posted Heubach Edelmetalle scrap buyback rates on 26 October 2026 and contemporaneous gold.de spot prices. This is not a live Heubach quote. User may adjust percentages.
-- Gold API and XAUS free keyless price sources, automatic fallback, and Frankfurter public EUR/USD exchange data. Show stale indication for cached quotes.
-- App icon shows gold and silver bars, with original Price Monitor gold and silver graphics retained within the app.
+## Calculator
 
-## Build & update
-GitHub Actions `Build Gold & Silver Checker` builds debug and unsigned release APKs.
-For **seamless updates**, sign release APK with the original owner's **private v1.0.0 signing keystore**. Keystore MUST NOT be stored in the public project. Package `com.rosergenbg.goldchecker`, versionCode 4.
+- GOLD purities: 999, 986, 750, 585, 375, 333; SILVER: 999, 925, 900, 835, 800, 750.
+- Per-metal `Eigene Feinheit` / `Custom Fineness` row accepts a fineness in thousandths (`1..1000`) plus an independently editable weight. Custom fineness persists after `Zurücksetzen` / `Reset`, which clears all weights including custom weight.
+- Gold and silver totals combine standard and custom rows; each fineness is multiplied by purity/1000. Comma and period decimal weights, e.g. `22,5` or `22.5`.
+- German or English, EUR or USD, and grams, troy ounces or dwt separately configurable.
+- Indicative dealer bid is a user-editable percentage of spot, *not* a live dealer bid.
 
-This project is on a separate branch, never overwrite Price Monitor's main branch.
-## Direct Android download
+## Expandable chart monitor
 
-- [Download the signed updateable APK v1.1.2](releases/GoldSilverChecker-v1.1.2-SIGNED.apk)
-- This binary uses the same Android signing certificate as v1.0.0 and v1.1.0. Install over the previous version; do not uninstall first.
-- v1.1.2: decimal input accepts comma or dot, with decimal keyboard; version is displayed in the app; About / Report bug / PayPal support actions are available in DE and EN.
-- PayPal recipient email is a developer contact; donations work only if that email is associated with an eligible PayPal receiving account.
-- **Never commit the keystore/signing secret to this public repository.**
+- Top `Kursverlauf anzeigen` / `Show price charts` toggle opens two historical curves, one each for GOLD and SILVER. The *same button at the top* collapses them.
+- Chart periods 24h / 7d / 1mo / 1y / 3y, with percent change from first to last actual point and a cached indication.
+- Gold and silver history are read from XAUS keyless public historical endpoints: `/api/v1/intraday` for 24h when available, otherwise `/api/v1/chart`. For 3 years, request 5 years and filter locally. 7 days are filtered from a 1-month range. No price history is fabricated; missing data is displayed as unavailable.
+- Graph units intentionally fixed at USD per troy ounce; changing calculator currency/weight does **not** convert historical data using the latest FX rate. XAUS chart is sourced via Yahoo Finance proxy and historical quotes can differ from live spot rates.
+- PriceMonitor's simple line-chart concept and original gold/silver images are reused, but only precious metals are queried: **no Bitcoin, crypto or trading modules**.
+- Historical responses cached locally; no owner-operated servers, credentials or database.
 
-## v1.1.2 layout refinement
+## Building and distribution
 
-- Removed gold 875 and 835 from the visible price and weight rows. Silver 835 is retained.
-- Both side-by-side panels now have six matching rows: no blank space below the silver panel.
-- Reset stays beside Calculate, where users can easily clear both metals at once.
-- Previous saved weight entries for retired gold grades are cleared once on upgrade.
-- Gold 986 remains for Austrian ducat coins and other 986-fineness gold.
+GitHub Actions builds a debug APK and an unsigned release. To install over v1.1.2, use the **same private release signing key** stored outside the public repo, with versionCode 5. Never upload the signing keystore or credentials to this public branch.
+
+The `main` branch still contains the old Price Monitor and must not be overwritten.

@@ -64,6 +64,14 @@ public class MainActivity extends Activity {
     private TextView status, result, subtitle;
     private Button refreshButton;
     private LinearLayout goldRows, silverRows;
+    private boolean chartsOpen;
+    private String chartPeriod;
+    private LinearLayout chartsPanel;
+    private Button chartsToggle;
+    private final List<Button> periodButtons = new ArrayList<>();
+    private PriceChartView chartGold, chartSilver;
+    private TextView chartGoldStatus, chartSilverStatus;
+    private long chartRequestSerial;
     private boolean loading;
     private long lastRefreshAttempt;
 
@@ -71,8 +79,18 @@ public class MainActivity extends Activity {
         int purity;
         boolean gold;
         EditText input;
+        EditText customPurity;
         TextView price;
-        String key() { return (gold ? "g_" : "s_") + purity; }
+        String key() { return (gold ? "g_" : "s_") + (customPurity != null ? "custom" : purity); }
+        int fineness() {
+            if (customPurity == null) return purity;
+            try {
+                String s = customPurity.getText().toString().trim();
+                if (s.isEmpty()) return 0;
+                int value = Integer.parseInt(s);
+                return value >= 1 && value <= 1000 ? value : -1;
+            } catch (Exception e) { return -1; }
+        }
     }
 
     @Override public void onCreate(Bundle saved) {
@@ -80,11 +98,12 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         prefs = getSharedPreferences("prefs", MODE_PRIVATE);
-        // Remove data from retired gold rows once; silver 835 remains unchanged.
         if (!prefs.getBoolean("gold_grade_cleanup_v112", false)) {
             prefs.edit().remove("weight_g_875").remove("weight_g_835")
                     .putBoolean("gold_grade_cleanup_v112", true).apply();
         }
+        chartsOpen = prefs.getBoolean("charts_open", false);
+        chartPeriod = prefs.getString("chart_period", "24h");
         german = prefs.getBoolean("language_de", true);
         currency = prefs.getString("currency", german ? "EUR" : "USD");
         unit = prefs.getString("weight_unit", "g");
@@ -157,6 +176,7 @@ public class MainActivity extends Activity {
         status = txt(t("Kurse werden geladen …", "Loading prices …"), 11, MUTED, false);
         status.setPadding(dp(3), dp(2), dp(3), dp(10));
         root.addView(status);
+        addChartsSection(root);
 
         LinearLayout guide = horizontal(Gravity.CENTER_VERTICAL);
         TextView instruction = txt(t("Gewicht je Feinheit eingeben", "Enter weight for each fineness"), 12, MUTED, false);
@@ -272,8 +292,6 @@ public class MainActivity extends Activity {
             input.setPadding(dp(2), 0, dp(2), 0);
             input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
             input.setKeyListener(DigitsKeyListener.getInstance("0123456789,."));
-            // Keep the decimal keypad after applying the accept-comma/dot listener.
-            input.setRawInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
             input.setBackground(round(PANEL, BORDER, 6));
             input.setText(prefs.getString("weight_" + entry.key(), ""));
             input.addTextChangedListener(new TextWatcher() {
@@ -296,8 +314,158 @@ public class MainActivity extends Activity {
             weights.add(entry);
         }
         panel.addView(rows);
+        addCustomPurity(panel, gold);
         if (gold) goldRows = rows; else silverRows = rows;
         return panel;
+    }
+
+    private void addChartsSection(LinearLayout root) {
+        chartsToggle=button("",true);
+        chartsToggle.setContentDescription(t("Kursdiagramme ein- oder ausblenden", "Toggle price charts"));
+        chartsToggle.setOnClickListener(v -> {
+            chartsOpen=!chartsOpen;
+            prefs.edit().putBoolean("charts_open",chartsOpen).apply();
+            updateChartsVisibility();
+        });
+        LinearLayout.LayoutParams toggleLp=new LinearLayout.LayoutParams(-1,dp(43));
+        toggleLp.setMargins(0,dp(1),0,dp(8));root.addView(chartsToggle,toggleLp);
+        chartsPanel=vertical();chartsPanel.setPadding(dp(10),dp(8),dp(10),dp(10));
+        chartsPanel.setBackground(round(PANEL,BORDER,12));
+        LinearLayout periods=horizontal(Gravity.CENTER_VERTICAL);
+        periodButtons.clear();
+        final String[] codes={"24h","7d","1mo","1y","3y"};
+        final String[] labels={"24H","7T","1M","1J","3J"};
+        for(int i=0;i<codes.length;i++) {
+            final String period=codes[i];
+            Button b=button(german?labels[i]:codes[i].toUpperCase(Locale.US),true);
+            b.setOnClickListener(v -> {
+                chartPeriod=period;prefs.edit().putString("chart_period",period).apply();
+                updatePeriodButtons();loadCharts();
+            });
+            periodButtons.add(b);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(39),1f);
+            if(i>0)lp.setMargins(dp(3),0,0,0);
+            periods.addView(b,lp);
+        }
+        chartsPanel.addView(periods);
+        TextView info=txt(t("Kursverlauf · USD je Feinunze (unabhängig von der Kalkulatorwährung)",
+                "Price history · USD per troy oz (independent of calculator currency)"),10,MUTED,false);
+        info.setPadding(dp(1),dp(9),0,dp(3));chartsPanel.addView(info);
+        LinearLayout goldHeader=horizontal(Gravity.CENTER_VERTICAL);
+        TextView gTitle=txt("GOLD",14,GOLD,true);goldHeader.addView(gTitle,new LinearLayout.LayoutParams(0,-2,1));
+        chartGoldStatus=txt("…",12,MUTED,true);chartGoldStatus.setGravity(Gravity.END);goldHeader.addView(chartGoldStatus);
+        chartsPanel.addView(goldHeader);
+        chartGold=new PriceChartView(this,GOLD,german);chartsPanel.addView(chartGold);
+        LinearLayout silverHeader=horizontal(Gravity.CENTER_VERTICAL);
+        TextView sTitle=txt("SILVER",14,SILVER,true);silverHeader.addView(sTitle,new LinearLayout.LayoutParams(0,-2,1));
+        chartSilverStatus=txt("…",12,MUTED,true);chartSilverStatus.setGravity(Gravity.END);silverHeader.addView(chartSilverStatus);
+        chartsPanel.addView(silverHeader);
+        chartSilver=new PriceChartView(this,SILVER,german);chartsPanel.addView(chartSilver);
+        LinearLayout.LayoutParams chartLp=new LinearLayout.LayoutParams(-1,-2);chartLp.setMargins(0,0,0,dp(10));
+        root.addView(chartsPanel,chartLp);
+        updatePeriodButtons();updateChartsVisibility();
+    }
+    private void updateChartsVisibility() {
+        chartsToggle.setText(chartsOpen ? "▴  "+t("Kursverlauf schließen","Close price charts")
+                : "▾  "+t("Kursverlauf anzeigen","Show price charts"));
+        chartsPanel.setVisibility(chartsOpen?View.VISIBLE:View.GONE);
+        if(chartsOpen)loadCharts();
+        else chartRequestSerial++;
+    }
+    private void updatePeriodButtons() {
+        String[] periods={"24h","7d","1mo","1y","3y"};
+        for(int i=0;i<periodButtons.size();i++){
+            boolean active=periods[i].equals(chartPeriod);
+            Button b=periodButtons.get(i);
+            b.setBackground(round(active?MINT:FIELD,active?MINT:BORDER,8));
+            b.setTextColor(active?BG:WHITE);
+        }
+    }
+    private void loadCharts() {
+        final long req=++chartRequestSerial;
+        final String period=chartPeriod;
+        chartGoldStatus.setText(t("Laden …","Loading …"));
+        chartSilverStatus.setText(t("Laden …","Loading …"));
+        chartGold.setSeries(null);chartSilver.setSeries(null);
+        io.execute(() -> {
+            HistoryData data=new HistoryData(prefs);
+            for(String metal:new String[]{"gold","silver"}){
+                HistoryData.Series incoming=null;
+                try { incoming=data.load(metal,period); }catch(Exception ignored){}
+                final HistoryData.Series ready=incoming;
+                runOnUiThread(() -> {
+                    if(isFinishing()||isDestroyed()||req!=chartRequestSerial||!chartsOpen)return;
+                    TextView target="gold".equals(metal)?chartGoldStatus:chartSilverStatus;
+                    PriceChartView view="gold".equals(metal)?chartGold:chartSilver;
+                    view.setSeries(ready);
+                    if(ready==null){target.setText(t("Keine Daten","No data"));target.setTextColor(WARNING);return;}
+                    double change=ready.deltaPct();
+                    String pct=(change>0?"+":"")+decimal(change,2)+"%";
+                    // Show actual coverage when a requested 24-hour window lacks enough points.
+                    if("24h".equals(period)&&ready.coverageMs()<20L*3600_000L)
+                        pct+=t(" · Teilzeitraum"," · partial range");
+                    if(ready.cached)pct+=t(" · Cache"," · cached");
+                    target.setText(pct);
+                    target.setTextColor(change>=0?MINT:WARNING);
+                });
+            }
+        });
+    }
+
+    private void addCustomPurity(LinearLayout panel, boolean gold) {
+        LinearLayout custom = vertical();
+        custom.setPadding(dp(5), dp(9), dp(5), dp(7));
+        custom.setBackground(round(gold ? 0xFF32412A : 0xFF233E43, gold ? GOLD : SILVER, 10));
+        LinearLayout.LayoutParams customLp = new LinearLayout.LayoutParams(-1, -2);
+        customLp.setMargins(0, dp(7), 0, 0);
+        TextView label = txt(t("✎ Eigene Feinheit", "✎ Custom fineness"), 11, gold ? GOLD : SILVER, true);
+        label.setPadding(dp(1), 0, 0, dp(6));
+        custom.addView(label);
+        WeightRow entry = new WeightRow();
+        entry.gold = gold;
+        LinearLayout line = horizontal(Gravity.CENTER_VERTICAL);
+        EditText purityInput = new EditText(this);
+        purityInput.setSingleLine(true);
+        purityInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        purityInput.setKeyListener(DigitsKeyListener.getInstance("0123456789"));
+        purityInput.setTextSize(12); purityInput.setTextColor(WHITE);
+        purityInput.setHint("‰"); purityInput.setHintTextColor(MUTED);
+        purityInput.setGravity(Gravity.CENTER);purityInput.setPadding(0,0,0,0);
+        purityInput.setBackground(round(FIELD, gold ? GOLD : SILVER, 6));
+        purityInput.setText(prefs.getString(gold ? "custom_purity_gold" : "custom_purity_silver", ""));
+        entry.customPurity=purityInput;
+        line.addView(purityInput,new LinearLayout.LayoutParams(dp(39),dp(38)));
+        EditText weight = new EditText(this);
+        weight.setSingleLine(true);weight.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        weight.setKeyListener(DigitsKeyListener.getInstance("0123456789,."));
+        weight.setTextColor(WHITE);weight.setTextSize(12);weight.setGravity(Gravity.CENTER);
+        weight.setHint("0");weight.setHintTextColor(MUTED);weight.setPadding(0,0,0,0);
+        weight.setBackground(round(FIELD,BORDER,6));
+        weight.setText(prefs.getString("weight_"+entry.key(),""));
+        LinearLayout.LayoutParams weightLp = new LinearLayout.LayoutParams(dp(54),dp(38));
+        weightLp.setMargins(dp(2),0,0,0);line.addView(weight,weightLp);
+        entry.input=weight;
+        entry.price=txt("—",10,WHITE,true);entry.price.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams priceLp=new LinearLayout.LayoutParams(0,dp(38),1f);
+        priceLp.setMargins(dp(2),0,0,0);line.addView(entry.price,priceLp);
+        custom.addView(line);
+        purityInput.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence t,int a,int c,int f) {}
+            public void onTextChanged(CharSequence t,int a,int b,int c) {
+                prefs.edit().putString(gold ? "custom_purity_gold" : "custom_purity_silver",t.toString()).apply();
+                updateRows();
+            }
+            public void afterTextChanged(Editable e) {}
+        });
+        weight.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence t,int a,int c,int f) {}
+            public void onTextChanged(CharSequence t,int a,int b,int c) {
+                prefs.edit().putString("weight_"+entry.key(),t.toString()).apply();
+            }
+            public void afterTextChanged(Editable e) {}
+        });
+        weights.add(entry);
+        panel.addView(custom,customLp);
     }
 
     private void switchLanguage(boolean de) {
@@ -382,8 +550,6 @@ public class MainActivity extends Activity {
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setKeyListener(DigitsKeyListener.getInstance("0123456789,."));
-        input.setRawInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         input.setText(decimal((gold ? goldPayout : silverPayout) * 100, 1));
         input.setPadding(dp(20), dp(10), dp(20), dp(10));
         new AlertDialog.Builder(this).setTitle(t("Ankaufquote in %", "Estimated dealer payout in %"))
@@ -454,7 +620,9 @@ public class MainActivity extends Activity {
         for (WeightRow row : weights) {
             if (quote == null) { row.price.setText("—"); continue; }
             double ozPrice = row.gold ? quote.goldUsdOz : quote.silverUsdOz;
-            double unitPrice = ozPrice / MetalMath.GRAMS_PER_TROY_OUNCE * gramsPerUnit() * (row.purity / 1000.0) * (euro() ? quote.usdToEur : 1.0);
+            int fineness = row.fineness();
+            if (fineness <= 0) { row.price.setText("—"); continue; }
+            double unitPrice = ozPrice / MetalMath.GRAMS_PER_TROY_OUNCE * gramsPerUnit() * (fineness / 1000.0) * (euro() ? quote.usdToEur : 1.0);
             row.price.setText(decimal(unitPrice, row.gold ? 2 : ("g".equals(unit) ? 3 : 2)));
         }
     }
@@ -477,9 +645,14 @@ public class MainActivity extends Activity {
             try { amount = parseWeight(row.input.getText().toString()); }
             catch (Exception e) { toast(t("Ungültiges Gewicht bei Probe ", "Invalid weight at fineness ") + row.purity); return; }
             if (amount <= 0) continue;
+            int grade = row.fineness();
+            if (grade < 1 || grade > 1000) {
+                toast(t("Bitte eigene Feinheit von 1 bis 1000 eingeben", "Enter a custom fineness from 1 to 1000"));
+                return;
+            }
             count++;
             double value = MetalMath.spotValue(row.gold ? quote.goldUsdOz : quote.silverUsdOz,
-                    quote.usdToEur, euro(), row.purity, amount * gramsPerUnit());
+                    quote.usdToEur, euro(), grade, amount * gramsPerUnit());
             if (row.gold) { goldSpot += value; goldWeight += amount; }
             else { silverSpot += value; silverWeight += amount; }
         }
