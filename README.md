@@ -34,3 +34,11 @@ The `main` branch still contains the old Price Monitor and must not be overwritt
 - Dedicated refresh button in expanded charts, with loading spinner; auto-refreshes when panel opens and app resumes.
 - Removed company-specific name from dealer-estimate disclaimer; actual payout can differ, particularly be lower, sometimes higher.
 - Core history data still sourced keylessly from XAUS (real data only). Cached history is only used if fresh retrieval fails.
+## Signed APK v1.2.1 — direct GitHub download
+
+[Download GoldSilverChecker v1.2.1 signed updateable APK](releases/GoldSilverChecker-v1.2.1-SIGNED.apk)
+
+SHA-256: `fab7a801879279d7858b64fe20cec6b806955e797f4c39deb59ccb032e578408`.
+APK verified against the same signing certificate as v1.1.0, so install it directly over v1.2.0. Never upload the private signing kit to this public repository.
+
+The XAUS chart data may occasionally be unavailable, and EUR charts use the **current** FX conversion (not historic EURUSD time series); no synthetic prices are displayed.
