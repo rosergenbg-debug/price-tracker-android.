@@ -1,5 +1,7 @@
 package com.rosergenbg.goldchecker;
 
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
@@ -21,6 +23,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -70,6 +73,12 @@ public class MainActivity extends Activity {
     private Button chartsToggle;
     private final List<Button> periodButtons = new ArrayList<>();
     private PriceChartView chartGold, chartSilver;
+    private String chartUnit;
+    private String chartCurrency;
+    private TextView chartGoldTitle, chartSilverTitle, chartNote;
+    private Button chartRefreshButton;
+    private ProgressBar chartLoadingSpinner;
+    private boolean foregroundWasOpened;
     private TextView chartGoldStatus, chartSilverStatus;
     private long chartRequestSerial;
     private boolean loading;
@@ -104,6 +113,8 @@ public class MainActivity extends Activity {
         }
         chartsOpen = prefs.getBoolean("charts_open", false);
         chartPeriod = prefs.getString("chart_period", "24h");
+        chartUnit = prefs.getString("chart_unit_v121", "kg");
+        chartCurrency = prefs.getString("chart_currency_v121", "EUR");
         german = prefs.getBoolean("language_de", true);
         currency = prefs.getString("currency", german ? "EUR" : "USD");
         unit = prefs.getString("weight_unit", "g");
@@ -113,6 +124,15 @@ public class MainActivity extends Activity {
         quote = new MarketData(prefs).cached();
         draw();
         refresh();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (foregroundWasOpened && chartsOpen && chartsPanel != null) {
+            loadCharts(true);
+            refreshForce();
+        }
+        foregroundWasOpened = true;
     }
 
     private String t(String de, String en) { return german ? de : en; }
@@ -222,8 +242,8 @@ public class MainActivity extends Activity {
         totalPanel.addView(result);
         root.addView(totalPanel);
 
-        TextView note = txt(t("Materialwert = Feingehalt × aktueller Spotkurs. Ankauf = unverbindliche Schätzung, orientiert an veröffentlichten Heubach-Preisen vom 26.10.2026 (Au 98,3 %, Ag 80,8 %). Keine Live-Ankaufsofferte. Preise und Feingehalt vor dem Verkauf prüfen.",
-                "Material value = fineness × current spot price. Dealer estimate is based on published Heubach prices from 26 Oct 2026 (Au 98.3%, Ag 80.8%). This is not a live dealer offer. Verify prices and purity before selling."), 10, MUTED, false);
+        TextView note = txt(t("Materialwert: rechnerischer Feingehalt zum aktuellen Spotkurs. Geschätzter Ankauf: unverbindlicher Orientierungswert auf Basis typischer Abschläge. Tatsächliche Angebote hängen u. a. von Prüfung, Händler und Markt ab und können insbesondere niedriger, in Einzelfällen auch höher ausfallen. Keine Preisgarantie.",
+                "Metal value: calculated fine-metal content at current spot rate. Estimated dealer payout: non-binding reference based on typical deductions. Actual offers depend on assay, dealer and market conditions and may be lower or occasionally higher. No price guarantee."), 10, MUTED, false);
         note.setPadding(dp(3), dp(12), dp(3), dp(4));
         root.addView(note);
         root.addView(txt(t("Quellen: Gold API / XAUS · ohne Anmeldung", "Sources: Gold API / XAUS · no signup"), 10, MUTED, false));
@@ -321,7 +341,7 @@ public class MainActivity extends Activity {
 
     private void addChartsSection(LinearLayout root) {
         chartsToggle=button("",true);
-        chartsToggle.setContentDescription(t("Kursdiagramme ein- oder ausblenden", "Toggle price charts"));
+        chartsToggle.setContentDescription(t("Kursdiagramme ein- oder ausblenden", "Show or hide price charts"));
         chartsToggle.setOnClickListener(v -> {
             chartsOpen=!chartsOpen;
             prefs.edit().putBoolean("charts_open",chartsOpen).apply();
@@ -329,9 +349,26 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams toggleLp=new LinearLayout.LayoutParams(-1,dp(43));
         toggleLp.setMargins(0,dp(1),0,dp(8));root.addView(chartsToggle,toggleLp);
-        chartsPanel=vertical();chartsPanel.setPadding(dp(10),dp(8),dp(10),dp(10));
+
+        chartsPanel=vertical();
+        chartsPanel.setPadding(dp(8),dp(10),dp(8),dp(12));
         chartsPanel.setBackground(round(PANEL,BORDER,12));
+
+        LinearLayout tools=horizontal(Gravity.CENTER_VERTICAL);
+        chartRefreshButton=button("↻ " + t("Aktualisieren", "Refresh"),true);
+        chartRefreshButton.setContentDescription(t("Kursverlauf jetzt aktualisieren", "Refresh price history now"));
+        chartRefreshButton.setOnClickListener(v -> loadCharts(true));
+        tools.addView(chartRefreshButton,new LinearLayout.LayoutParams(0,dp(42),1));
+        chartLoadingSpinner=new ProgressBar(this);
+        chartLoadingSpinner.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(MINT));
+        chartLoadingSpinner.setVisibility(View.GONE);
+        LinearLayout.LayoutParams spinnerLp=new LinearLayout.LayoutParams(dp(25),dp(25));
+        spinnerLp.setMargins(dp(10),0,dp(4),0);
+        tools.addView(chartLoadingSpinner,spinnerLp);
+        chartsPanel.addView(tools);
+
         LinearLayout periods=horizontal(Gravity.CENTER_VERTICAL);
+        periods.setPadding(0,dp(9),0,dp(3));
         periodButtons.clear();
         final String[] codes={"24h","7d","1mo","1y","3y"};
         final String[] labels={"24H","7T","1M","1J","3J"};
@@ -339,8 +376,11 @@ public class MainActivity extends Activity {
             final String period=codes[i];
             Button b=button(german?labels[i]:codes[i].toUpperCase(Locale.US),true);
             b.setOnClickListener(v -> {
-                chartPeriod=period;prefs.edit().putString("chart_period",period).apply();
-                updatePeriodButtons();loadCharts();
+                if(period.equals(chartPeriod))return;
+                chartPeriod=period;
+                prefs.edit().putString("chart_period",period).apply();
+                updatePeriodButtons();
+                loadCharts(false);
             });
             periodButtons.add(b);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(39),1f);
@@ -348,29 +388,47 @@ public class MainActivity extends Activity {
             periods.addView(b,lp);
         }
         chartsPanel.addView(periods);
-        TextView info=txt(t("Kursverlauf · USD je Feinunze (unabhängig von der Kalkulatorwährung)",
-                "Price history · USD per troy oz (independent of calculator currency)"),10,MUTED,false);
-        info.setPadding(dp(1),dp(9),0,dp(3));chartsPanel.addView(info);
-        LinearLayout goldHeader=horizontal(Gravity.CENTER_VERTICAL);
-        TextView gTitle=txt("GOLD",14,GOLD,true);goldHeader.addView(gTitle,new LinearLayout.LayoutParams(0,-2,1));
-        chartGoldStatus=txt("…",12,MUTED,true);chartGoldStatus.setGravity(Gravity.END);goldHeader.addView(chartGoldStatus);
-        chartsPanel.addView(goldHeader);
-        chartGold=new PriceChartView(this,GOLD,german);chartsPanel.addView(chartGold);
-        LinearLayout silverHeader=horizontal(Gravity.CENTER_VERTICAL);
-        TextView sTitle=txt("SILVER",14,SILVER,true);silverHeader.addView(sTitle,new LinearLayout.LayoutParams(0,-2,1));
-        chartSilverStatus=txt("…",12,MUTED,true);chartSilverStatus.setGravity(Gravity.END);silverHeader.addView(chartSilverStatus);
-        chartsPanel.addView(silverHeader);
-        chartSilver=new PriceChartView(this,SILVER,german);chartsPanel.addView(chartSilver);
-        LinearLayout.LayoutParams chartLp=new LinearLayout.LayoutParams(-1,-2);chartLp.setMargins(0,0,0,dp(10));
+        chartNote=txt("",10,MUTED,false);
+        chartNote.setPadding(dp(5),dp(10),dp(3),dp(4));
+        chartsPanel.addView(chartNote);
+
+        LinearLayout goldCard=makeChartCard(true);
+        LinearLayout.LayoutParams goldLp=new LinearLayout.LayoutParams(-1,-2);
+        goldLp.setMargins(0,dp(9),0,dp(15));
+        chartsPanel.addView(goldCard,goldLp);
+        LinearLayout silverCard=makeChartCard(false);
+        chartsPanel.addView(silverCard);
+        LinearLayout.LayoutParams chartLp=new LinearLayout.LayoutParams(-1,-2);
+        chartLp.setMargins(0,0,0,dp(10));
         root.addView(chartsPanel,chartLp);
-        updatePeriodButtons();updateChartsVisibility();
+        updatePeriodButtons();
+        updateChartDisplay();
+        updateChartsVisibility();
+    }
+    private LinearLayout makeChartCard(boolean gold) {
+        LinearLayout card=vertical();
+        card.setPadding(dp(9),dp(12),dp(9),dp(12));
+        card.setBackground(round(FIELD,gold?0xFF69542B:0xFF516270,13));
+        LinearLayout header=horizontal(Gravity.CENTER_VERTICAL);
+        TextView title=txt("",15,gold?GOLD:SILVER,true);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView change=txt("…",12,MUTED,true);
+        change.setGravity(Gravity.END);
+        header.addView(change);
+        card.addView(header);
+        PriceChartView view=new PriceChartView(this,gold?GOLD:SILVER,german);
+        view.setPeriod(chartPeriod);
+        card.addView(view,new LinearLayout.LayoutParams(-1,dp(249)));
+        if(gold){chartGold=view;chartGoldTitle=title;chartGoldStatus=change;}
+        else {chartSilver=view;chartSilverTitle=title;chartSilverStatus=change;}
+        return card;
     }
     private void updateChartsVisibility() {
         chartsToggle.setText(chartsOpen ? "▴  "+t("Kursverlauf schließen","Close price charts")
                 : "▾  "+t("Kursverlauf anzeigen","Show price charts"));
         chartsPanel.setVisibility(chartsOpen?View.VISIBLE:View.GONE);
-        if(chartsOpen)loadCharts();
-        else chartRequestSerial++;
+        if(chartsOpen)loadCharts(true); // always request fresh history when opening
+        else {chartRequestSerial++;stopChartLoading();}
     }
     private void updatePeriodButtons() {
         String[] periods={"24h","7d","1mo","1y","3y"};
@@ -381,32 +439,54 @@ public class MainActivity extends Activity {
             b.setTextColor(active?BG:WHITE);
         }
     }
-    private void loadCharts() {
+    private void stopChartLoading(){
+        if(chartLoadingSpinner!=null)chartLoadingSpinner.setVisibility(View.GONE);
+        if(chartRefreshButton!=null)chartRefreshButton.setEnabled(true);
+    }
+    private double chartFx(){return quote==null?Double.NaN:quote.usdToEur;}
+    private void updateChartDisplay(){
+        if(chartGold==null || chartSilver==null)return;
+        String suffix=chartCurrency+"/"+("oz".equals(chartUnit)?"oz t":chartUnit);
+        chartGoldTitle.setText("GOLD · "+suffix);
+        chartSilverTitle.setText("SILVER · "+suffix);
+        chartGold.setDisplay(chartCurrency,chartUnit,chartFx());
+        chartSilver.setDisplay(chartCurrency,chartUnit,chartFx());
+        chartGold.setPeriod(chartPeriod);
+        chartSilver.setPeriod(chartPeriod);
+        chartNote.setText(t("Historische Marktpreise · Quelle XAUS · Währungsumrechnung mit aktuellem Kurs (kein historischer FX-Verlauf)",
+                "Historical market prices · XAUS · FX conversion at current rate (not historical FX rates)"));
+    }
+    private void loadCharts(boolean force) {
+        if(!chartsOpen || chartGold==null || chartSilver==null)return;
         final long req=++chartRequestSerial;
         final String period=chartPeriod;
+        updateChartDisplay();
         chartGoldStatus.setText(t("Laden …","Loading …"));
         chartSilverStatus.setText(t("Laden …","Loading …"));
-        chartGold.setSeries(null);chartSilver.setSeries(null);
+        if(chartLoadingSpinner!=null)chartLoadingSpinner.setVisibility(View.VISIBLE);
+        if(chartRefreshButton!=null)chartRefreshButton.setEnabled(false);
         io.execute(() -> {
             HistoryData data=new HistoryData(prefs);
             for(String metal:new String[]{"gold","silver"}){
                 HistoryData.Series incoming=null;
-                try { incoming=data.load(metal,period); }catch(Exception ignored){}
+                try { incoming=data.load(metal,period,force); }catch(Exception ignored){}
                 final HistoryData.Series ready=incoming;
                 runOnUiThread(() -> {
                     if(isFinishing()||isDestroyed()||req!=chartRequestSerial||!chartsOpen)return;
                     TextView target="gold".equals(metal)?chartGoldStatus:chartSilverStatus;
                     PriceChartView view="gold".equals(metal)?chartGold:chartSilver;
-                    view.setSeries(ready);
-                    if(ready==null){target.setText(t("Keine Daten","No data"));target.setTextColor(WARNING);return;}
-                    double change=ready.deltaPct();
-                    String pct=(change>0?"+":"")+decimal(change,2)+"%";
-                    // Show actual coverage when a requested 24-hour window lacks enough points.
-                    if("24h".equals(period)&&ready.coverageMs()<20L*3600_000L)
-                        pct+=t(" · Teilzeitraum"," · partial range");
-                    if(ready.cached)pct+=t(" · Cache"," · cached");
-                    target.setText(pct);
-                    target.setTextColor(change>=0?MINT:WARNING);
+                    view.setSeries(ready); // real points only; no fictional fallback
+                    if(ready==null){target.setText(t("Keine Daten","No data"));target.setTextColor(WARNING);}
+                    else {
+                        double change=ready.deltaPct();
+                        String pct=(change>0?"+":"")+decimal(change,2)+"%";
+                        if("24h".equals(period)&&ready.coverageMs()<20L*3600_000L)
+                            pct+=t(" · Teilzeitraum"," · partial");
+                        if(ready.cached)pct+=t(" · Cache"," · cached");
+                        target.setText(pct);
+                        target.setTextColor(change>=0?MINT:WARNING);
+                    }
+                    if("silver".equals(metal))stopChartLoading();
                 });
             }
         });
@@ -487,14 +567,39 @@ public class MainActivity extends Activity {
             t("Gewichtseinheit: ", "Weight unit: ") + unit,
             t("Kursquelle: ", "Price source: ") + ("AUTO".equals(source) ? "Gold API → XAUS" : source),
             t("Gold Ankaufquote: ", "Gold payout ratio: ") + pct(goldPayout),
-            t("Silber Ankaufquote: ", "Silver payout ratio: ") + pct(silverPayout)
+            t("Silber Ankaufquote: ", "Silver payout ratio: ") + pct(silverPayout),
+            t("Diagrammwährung: ", "Chart currency: ") + chartCurrency,
+            t("Diagrammeinheit: ", "Chart unit: ") + ("oz".equals(chartUnit)?"oz t":chartUnit)
         };
         new AlertDialog.Builder(this).setTitle(t("Einstellungen", "Settings")).setItems(options, (dlg, n) -> {
             if (n == 0) chooseCurrency();
             else if (n == 1) chooseUnit();
             else if (n == 2) chooseSource();
-            else changePayout(n == 3);
+            else if(n == 3 || n == 4) changePayout(n == 3);
+            else if(n == 5) chooseChartCurrency();
+            else if(n == 6) chooseChartUnit();
         }).setNegativeButton(t("Schließen", "Close"), null).show();
+    }
+
+    private void chooseChartCurrency() {
+        int selected="EUR".equals(chartCurrency)?0:1;
+        new AlertDialog.Builder(this).setTitle(t("Währung der Diagramme", "Chart currency"))
+            .setSingleChoiceItems(new String[]{"EUR (€)","USD ($)"},selected,(dialog,n)->{
+                chartCurrency=n==0?"EUR":"USD";
+                prefs.edit().putString("chart_currency_v121",chartCurrency).apply();
+                updateChartDisplay();dialog.dismiss();
+            }).setNegativeButton(t("Abbrechen","Cancel"),null).show();
+    }
+    private void chooseChartUnit() {
+        final String[] values={"kg","g","oz","dwt"};
+        int selected=0;for(int i=0;i<values.length;i++)if(values[i].equals(chartUnit))selected=i;
+        String[] labels={t("Kilogramm (kg)","Kilograms (kg)"),t("Gramm (g)","Grams (g)"),
+            t("Feinunze (oz t)","Troy ounces (oz t)"),"Pennyweight (dwt)"};
+        new AlertDialog.Builder(this).setTitle(t("Einheit der Kursdiagramme", "Chart price unit"))
+            .setSingleChoiceItems(labels,selected,(dialog,n)->{
+                chartUnit=values[n];prefs.edit().putString("chart_unit_v121",chartUnit).apply();
+                updateChartDisplay();dialog.dismiss();
+            }).setNegativeButton(t("Abbrechen","Cancel"),null).show();
     }
 
     private void chooseCurrency() {
@@ -590,6 +695,7 @@ public class MainActivity extends Activity {
                 refreshButton.setEnabled(true);
                 if (!source.equals(chosen)) { refreshForce(); return; }
                 if (ready != null) quote = ready;
+                updateChartDisplay();
                 updateStatus();
                 updateRows();
                 calculateIfAny();

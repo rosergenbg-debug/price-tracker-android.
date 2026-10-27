@@ -31,14 +31,15 @@ public final class HistoryData {
         if ("1y".equals(range)) return 366L * 24L * 3600_000L;
         return 3L * 365L * 24L * 3600_000L;
     }
-    public Series load(String metal, String range) throws Exception {
+    public Series load(String metal, String range) throws Exception { return load(metal,range,false); }
+    public Series load(String metal, String range, boolean force) throws Exception {
         if (!("gold".equals(metal) || "silver".equals(metal))) throw new IOException("Unknown metal");
         String cacheKey = "history_" + metal + "_" + range;
         long now = System.currentTimeMillis();
         long saved = prefs.getLong(cacheKey + "_at", 0);
         String old = prefs.getString(cacheKey, "");
         long ttl = "24h".equals(range) ? 5L * 60_000L : 4L * 3600_000L;
-        if (saved > 0 && now - saved < ttl && !old.isEmpty()) {
+        if (!force && saved > 0 && now - saved < ttl && !old.isEmpty()) {
             try { return parse(new JSONObject(old), range, true); } catch (Exception ignored) { }
         }
         try {
