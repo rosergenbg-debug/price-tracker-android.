@@ -24,3 +24,8 @@ Android (`com.rosergenbg.goldchecker`, versionCode 5). Keyless, ad-free, no regi
 GitHub Actions builds a debug APK and an unsigned release. To install over v1.1.2, use the **same private release signing key** stored outside the public repo, with versionCode 5. Never upload the signing keystore or credentials to this public branch.
 
 The `main` branch still contains the old Price Monitor and must not be overwritten.
+## Android v1.2.0 ready to install
+
+[Download signed updateable APK 1.2.0](releases/GoldSilverChecker-v1.2.0-SIGNED.apk)
+
+This APK is signed with the same certificate as earlier releases (v1.0 and v1.1.x); install it over v1.1.2. Signing keys are NOT in this repository. SHA-256: `18865aafdadda2ddfef919f0575cded299de46157d667515c37f98c944062ace`.
